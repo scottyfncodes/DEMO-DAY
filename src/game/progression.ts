@@ -24,11 +24,33 @@ export interface RunOutcome {
   newRecords: Array<'payout' | 'removed' | 'collateral' | 'charges' | 'efficiency'>;
   firstCompletion: boolean;
   unlocked: ContractDef[];
+  /** Best payout on this job before this run (0 if never completed). */
+  previousBest: number;
+}
+
+export type BestComparison =
+  | { kind: 'first'; best: number; delta: number }
+  | { kind: 'new-best'; best: number; delta: number }
+  | { kind: 'tied'; best: number; delta: 0 }
+  | { kind: 'short'; best: number; delta: number }
+  | { kind: 'failed'; best: number; delta: number };
+
+/**
+ * How this run's payout compares with the best before it. `delta` is the
+ * improvement for a new best, or what is still needed to beat the best.
+ */
+export function compareToBest(total: number, previousBest: number, success: boolean): BestComparison {
+  if (!success) return { kind: 'failed', best: previousBest, delta: Math.max(0, previousBest - total) };
+  if (previousBest <= 0) return { kind: 'first', best: total, delta: total };
+  if (total > previousBest) return { kind: 'new-best', best: total, delta: total - previousBest };
+  if (total === previousBest) return { kind: 'tied', best: previousBest, delta: 0 };
+  return { kind: 'short', best: previousBest, delta: previousBest - total };
 }
 
 /** Applies a finished run to the save: money, completion, records, unlocks. */
 export function applyRun(save: SaveData, contract: ContractDef, report: Report, payout: Payout): RunOutcome {
   const record: ContractRecord = save.records[contract.id] ?? emptyRecord();
+  const previousBest = record.bestPayout;
   const before = unlockedContracts(save).map((c) => c.id);
   const newRecords: RunOutcome['newRecords'] = [];
   record.attempts += 1;
@@ -68,7 +90,7 @@ export function applyRun(save: SaveData, contract: ContractDef, report: Report, 
   }
   save.records[contract.id] = record;
   const after = unlockedContracts(save).filter((c) => !before.includes(c.id));
-  return { newRecords, firstCompletion, unlocked: after };
+  return { newRecords, firstCompletion, unlocked: after, previousBest };
 }
 
 export function canAfford(save: SaveData, equipmentId: string): boolean {

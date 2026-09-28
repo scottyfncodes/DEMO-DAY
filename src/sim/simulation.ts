@@ -1,4 +1,4 @@
-import type { Direction, Material, MemberKind, PlacedCharge } from '../core/types';
+import type { ChargeType, Direction, Material, MemberKind, PlacedCharge } from '../core/types';
 import { Rng, hashString } from '../core/rng';
 import { CHARGES } from '../data/charges';
 import { chargePoint, dependents, distanceToMember, type Building, type Member } from '../structure/building';
@@ -56,8 +56,13 @@ interface ToppleGroup {
   excludeIds: Set<string>;
 }
 
-export type SimEventType = 'detonate' | 'break' | 'impact' | 'shatter' | 'crush' | 'topple' | 'settled';
+export type SimEventType = 'detonate' | 'break' | 'impact' | 'shatter' | 'crush' | 'topple' | 'drop' | 'settled';
 
+/**
+ * Something that happened during the collapse. Events are a read-only log for
+ * effects, audio and the failure timeline; nothing reads them back into the
+ * simulation, so the optional metadata never changes the outcome.
+ */
 export interface SimEvent {
   type: SimEventType;
   t: number;
@@ -65,6 +70,17 @@ export interface SimEvent {
   y: number;
   strength: number;
   material?: Material;
+  /** Member the event belongs to (the parent member for fragments). */
+  memberId?: string;
+  kind?: MemberKind;
+  /** True when the event comes from debris rather than a whole member. */
+  fragment?: boolean;
+  /** Detonations: which charge went off and which way it pushes. */
+  chargeType?: ChargeType;
+  direction?: Direction;
+  /** Mass involved (impacts) or members in the falling group (topples). */
+  mass?: number;
+  count?: number;
 }
 
 export interface SimResult {
@@ -231,7 +247,18 @@ export class Simulation {
       const px = point.x;
       const py = point.y;
       const power = def.power * this.powerMul;
-      this.events.push({ type: 'detonate', t: this.time, x: px, y: py, strength: power / 100 });
+      this.events.push({
+        type: 'detonate',
+        t: this.time,
+        x: px,
+        y: py,
+        strength: power / 100,
+        material: target.material,
+        memberId: target.id,
+        kind: target.kind,
+        chargeType: charge.type,
+        direction: charge.direction,
+      });
       for (const chunk of this.chunks) {
         if (chunk.state !== 'standing') continue;
         const member = this.memberById.get(chunk.memberId) as Member;
@@ -315,7 +342,7 @@ export class Simulation {
       const c = this.chunkById.get(id) as Chunk;
       if (c.state === 'standing') {
         this.destroy(c, 'crush', 1.2);
-        this.events.push({ type: 'crush', t: this.time, x: c.cx, y: c.cy, strength: 1 });
+        this.events.push({ type: 'crush', t: this.time, x: c.cx, y: c.cy, strength: 1, material: c.material, memberId: c.memberId, kind: c.kind });
       }
     }
 
@@ -359,6 +386,7 @@ export class Simulation {
         c.vy = 0;
         c.va = 0;
         c.prevMinY = extents(c).minY;
+        this.events.push({ type: 'drop', t: this.time, x: c.cx, y: c.cy, strength: Math.min(1, c.mass / 8 + 0.3), material: c.material, memberId: c.memberId, kind: c.kind, mass: c.mass });
       }
     }
   }
@@ -458,6 +486,9 @@ export class Simulation {
       y: root.cy,
       strength: Math.min(1, ids.length / 4),
       material: root.material,
+      memberId: root.memberId,
+      kind: root.kind,
+      count: ids.length,
     });
   }
 
@@ -590,6 +621,10 @@ export class Simulation {
         y: ext.minY,
         strength: Math.min(1, (c.mass * speed) / 25),
         material: c.material,
+        memberId: c.memberId,
+        kind: c.kind,
+        fragment: c.isFragment,
+        mass: c.mass,
       });
       if (destroyedAny) {
         // Punched through: keep falling, slower.
@@ -622,7 +657,7 @@ export class Simulation {
 
     if (surface.neighbor) {
       const neighborId = surface.neighbor;
-      this.events.push({ type: 'impact', t: this.time, x: c.cx, y: surface.y, strength: Math.min(1, (c.mass * speed) / 20), material: c.material });
+      this.events.push({ type: 'impact', t: this.time, x: c.cx, y: surface.y, strength: Math.min(1, (c.mass * speed) / 20), material: c.material, memberId: c.memberId, kind: c.kind, fragment: c.isFragment, mass: c.mass });
       if (!c.isFragment) {
         // Impact bonus for the initial hit; the fragments add their mass as they settle.
         this.neighborHits[neighborId] = (this.neighborHits[neighborId] ?? 0) + c.mass * Math.min(1, speed / 6);
@@ -667,6 +702,10 @@ export class Simulation {
       y: surface.y,
       strength: Math.min(1, (c.mass * speed) / 25),
       material: c.material,
+      memberId: c.memberId,
+      kind: c.kind,
+      fragment: c.isFragment,
+      mass: c.mass,
     });
     if (speed > this.shatterSpeed(c.material)) {
       this.shatter(c, 'shatter', Math.min(2.4, 0.8 + speed * 0.12), 0);
@@ -753,6 +792,10 @@ export class Simulation {
       y: c.cy,
       strength: Math.min(1, c.mass / 8 + 0.3),
       material: c.material,
+      memberId: c.memberId,
+      kind: c.kind,
+      fragment: c.isFragment,
+      mass: c.mass,
     });
     this.shatter(c, cause, scatter, cause === 'blast' ? 2.2 : 0.6);
   }
@@ -818,6 +861,10 @@ export class Simulation {
       y: c.cy,
       strength: Math.min(1, area / 6 + 0.2),
       material: c.material,
+      memberId: c.memberId,
+      kind: c.kind,
+      fragment: c.isFragment,
+      mass: c.mass,
     });
   }
 
