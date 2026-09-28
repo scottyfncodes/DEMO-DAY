@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#243044"/>
+      <stop offset="1" stop-color="#0d1219"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fff3c0"/>
+      <stop offset="0.45" stop-color="#ffb020"/>
+      <stop offset="1" stop-color="#ff5a36" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <circle cx="352" cy="168" r="150" fill="url(#glow)"/>
+  <polygon fill="#ffd45a" points="352,58 372,128 434,92 400,150 470,168 400,186 434,244 372,208 352,278 332,208 270,244 304,186 234,168 304,150 270,92 332,128"/>
+  <polygon fill="#fff6d0" points="352,110 362,150 400,132 380,164 420,168 380,172 400,204 362,186 352,226 342,186 304,204 324,172 284,168 324,164 304,132 342,150"/>
+  <path fill="#e8e6e1" d="M96 208 H288 V248 L258 262 L282 296 L246 322 L262 356 H96 Z"/>
+  <path fill="#e8e6e1" d="M96 356 H262 L246 420 H96 Z"/>
+  <g fill="#1a2331">
+    <rect x="124" y="236" width="28" height="30"/><rect x="176" y="236" width="28" height="30"/><rect x="228" y="236" width="28" height="30"/>
+    <rect x="124" y="292" width="28" height="30"/><rect x="176" y="292" width="28" height="30"/>
+    <rect x="124" y="348" width="28" height="30"/><rect x="176" y="348" width="28" height="30"/>
+  </g>
+  <g fill="#e8e6e1">
+    <rect x="300" y="238" width="46" height="30" transform="rotate(24 323 253)"/>
+    <rect x="318" y="300" width="34" height="34" transform="rotate(-18 335 317)"/>
+    <rect x="292" y="360" width="26" height="26" transform="rotate(40 305 373)"/>
+  </g>
+  <rect x="56" y="420" width="400" height="26" rx="6" fill="#3b3230"/>
+  <rect x="56" y="416" width="400" height="8" rx="4" fill="#ffb020"/>
+</svg>
