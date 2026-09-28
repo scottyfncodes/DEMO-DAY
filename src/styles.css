@@ -435,11 +435,11 @@ h3 {
   min-width: 0;
   background: var(--panel);
   border-radius: 12px;
-  padding: 8px 12px;
+  padding: 6px 12px;
   box-shadow: inset 0 0 0 1px var(--line);
 }
 .job-top .title h2 {
-  font-size: 18px;
+  font-size: 16px;
   text-transform: uppercase;
   white-space: nowrap;
   overflow: hidden;
@@ -466,26 +466,112 @@ h3 {
   -webkit-backdrop-filter: blur(12px);
   border-radius: 22px 22px 0 0;
   box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.45);
-  padding: 12px calc(var(--safe-right) + 14px) calc(var(--safe-bottom) + 12px) calc(var(--safe-left) + 14px);
+  padding: 10px calc(var(--safe-right) + 12px) calc(var(--safe-bottom) + 10px) calc(var(--safe-left) + 12px);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 .job-info {
-  min-height: 74px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
 }
 .job-info .name {
   font-family: var(--font-display);
   font-weight: 800;
-  font-size: 20px;
+  font-size: 19px;
+  line-height: 1.1;
   text-transform: uppercase;
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  min-width: 0;
+}
+.job-info .name .label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+/* The material/kind gives way first so the member's name stays readable. */
+.job-info .name small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 0;
+}
+.job-info .name .pill {
+  flex: 0 0 auto;
+  font-size: 12px;
+  padding: 3px 8px;
+}
+.details-toggle {
+  flex: 0 0 auto;
+  margin-left: auto;
+  appearance: none;
+  border: 0;
+  min-height: 34px;
+  min-width: 56px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.details-toggle.on {
+  background: rgba(56, 198, 255, 0.18);
+  color: var(--info);
+}
+.job-info .summary {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.job-info .summary b {
+  color: var(--info);
+  font-weight: 600;
+}
+.job-info .summary b.carry {
+  color: var(--accent);
+}
+.job-info .summary b.warn {
+  color: var(--accent);
+}
+.job-info .summary b.bad {
+  color: var(--danger);
+}
+.job-info .details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 22vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.job-info .clamp,
+.job-info .effect {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.job-info .clamp {
+  -webkit-line-clamp: 2;
+}
+.job-info .effect .w {
+  display: inline;
+}
+.job-info .effect .w::before {
+  content: ' ';
 }
 .job-info .name small {
   font-size: 12px;
@@ -511,9 +597,9 @@ h3 {
   color: var(--accent);
 }
 .job-info .effect {
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.35;
-  padding: 8px 10px;
+  padding: 6px 10px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.05);
 }
@@ -546,13 +632,13 @@ h3 {
 .tray {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  gap: 6px;
 }
 .tray .charge {
   appearance: none;
   border: 0;
   border-radius: 12px;
-  min-height: 66px;
+  min-height: 54px;
   background: var(--bg-2);
   box-shadow: inset 0 0 0 1px var(--line);
   display: flex;
@@ -617,9 +703,17 @@ h3 {
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
+.actions {
+  gap: 6px !important;
+}
 .actions .btn {
-  min-height: 54px;
-  font-size: 18px;
+  min-height: 46px;
+  font-size: 17px;
+  padding: 0 12px;
+}
+.actions .dir-toggle .btn {
+  min-height: 40px;
+  font-size: 15px;
 }
 .actions .wide {
   grid-column: 1 / -1;
@@ -639,12 +733,20 @@ h3 {
 }
 .job-fab {
   position: absolute;
-  top: calc(var(--safe-top) + 72px);
-  right: calc(var(--safe-right) + 10px);
+  top: calc(var(--safe-top) + 66px);
+  right: calc(var(--safe-right) + 8px);
   z-index: 3;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+}
+.job-fab .btn-icon,
+.job-top .btn-icon {
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  font-size: 20px;
+  opacity: 0.92;
 }
 .toast {
   position: absolute;

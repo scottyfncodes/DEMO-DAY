@@ -881,7 +881,8 @@ export class Renderer {
     ctx.font = `700 13px ${UI_FONT}`;
     const tw = ctx.measureText(label).width + 16;
     const tx = (a.x + b.x) / 2 - tw / 2;
-    const ty = a.y - 30;
+    // Keep the tag below the header even when the member reaches the top of the view.
+    const ty = Math.max(cam.insetTop + 4, a.y - 30);
     ctx.fillStyle = 'rgba(12, 14, 18, 0.9)';
     this.roundRect(tx, ty, tw, 22, 6);
     ctx.fill();

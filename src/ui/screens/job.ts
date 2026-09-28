@@ -59,6 +59,8 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
   let chargeType: ChargeType = CHARGE_ORDER.find((t) => (loadout[t] ?? 0) > 0) ?? 'small';
   let direction: Direction = 'left';
   let scannerOn = scannerOwned;
+  /** Full notes and support lists, off by default so the building keeps the screen. */
+  let detailsOpen = false;
   let sim: Simulation | undefined;
   let disposed = false;
   let raf = 0;
@@ -84,9 +86,8 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
   const canvas = h('canvas', { 'aria-label': 'Building view. Tap a component to inspect it.', role: 'img' });
   const stage = h('div', { class: 'job-stage' }, canvas);
   const title = h('div', { class: 'title' }, h('h2', { text: contract.title }), h('div', { class: 'sub', text: `Job ${String(contract.jobNumber).padStart(2, '0')} · ${CONTRACT_TYPE_LABEL[contract.type]}` }));
-  const phasePill = h('span', { class: 'pill', text: 'Inspection' });
   const backButton = h('button', { class: 'btn btn-icon', 'aria-label': 'Back to contract', onClick: () => { app.play('tap'); app.go('contract', { id: contract.id }); } }, '‹');
-  const top = h('div', { class: 'job-top' }, backButton, title, phasePill);
+  const top = h('div', { class: 'job-top' }, backButton, title);
 
   const fitButton = h('button', { class: 'btn btn-icon', 'aria-label': 'Fit building in view', onClick: () => { app.play('tap'); fitBuilding(true); } }, '⤢');
   const scannerButton = h('button', { class: `btn btn-icon${scannerOn ? ' btn-primary' : ''}`, 'aria-label': 'Toggle structural scanner', onClick: () => { scannerOn = !scannerOn; scannerButton.classList.toggle('btn-primary', scannerOn); app.play('inspect'); } }, '⌗');
@@ -114,7 +115,7 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     renderer.resize(w, hgt);
     camera.setViewport(w, hgt);
     const showtime = phase !== 'plan';
-    camera.insetTop = showtime ? 44 : 70;
+    camera.insetTop = showtime ? 44 : 62;
     camera.insetBottom = showtime ? 44 : Math.min(hgt * 0.5, sheet.offsetHeight || 260);
   };
 
@@ -399,7 +400,7 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
         h('span', { class: 't', text: def.short }),
         h('i', { class: 'bar' }),
       );
-      paintChargeIcon(button.querySelector('canvas') as HTMLCanvasElement, type, 30);
+      paintChargeIcon(button.querySelector('canvas') as HTMLCanvasElement, type, 26);
       tray.append(button);
     }
   };
@@ -411,41 +412,68 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     const def = CHARGES[chargeType];
     if (!m) {
       info.append(
-        h('div', { class: 'name' }, 'Inspection', h('small', { text: `${plan.totalUsed()} / ${plan.totalAvailable()} charges placed` })),
-        h('div', { class: 'note', text: 'Tap a component to see what it carries and what holds it up. Select a charge, then place it.' }),
-        h('div', { class: 'hint', text: contract.hints[0] ?? '' }),
+        h('div', { class: 'name' }, 'Inspection', h('small', { text: `${plan.totalUsed()} / ${plan.totalAvailable()} charges · tap a component` })),
+        h('div', { class: 'hint clamp', text: contract.hints[0] ?? '' }),
       );
     } else {
       const mat = MATERIALS[m.material];
-      const carries = m.carries.map((id) => building.members.get(id)?.label ?? id);
-      const restsOn = m.grounded ? ['Ground'] : m.restsOn.map((l) => building.members.get(l.id)?.label ?? l.id);
-      const anchors = m.anchors?.map((id) => building.members.get(id)?.label ?? id) ?? [];
+      const label = (id: string): string => building.members.get(id)?.label ?? id;
+      const carries = m.carries.map(label);
+      const restsOn = m.grounded ? ['Ground'] : m.restsOn.map((l) => label(l.id));
+      const anchors = m.anchors?.map(label) ?? [];
       const integrity = Math.max(0, 1 - (m.damage ?? 0));
       const ratio = ratios.get(m.id) ?? 0;
-      const name = h('div', { class: 'name' }, m.label ?? m.id, h('small', { text: `${mat.name} ${KIND_LABEL[m.kind]}` }));
+      const name = h('div', { class: 'name' }, h('span', { class: 'label', text: m.label ?? m.id }), h('small', { text: `${mat.name} ${KIND_LABEL[m.kind]}` }));
       if (m.protect) name.append(h('span', { class: 'pill ok', text: 'Protected' }));
       else if (carries.length > 0) name.append(h('span', { class: 'pill', text: `Carries ${carries.length}` }));
+      const hasDetails = !!m.note || carries.length > 1 || restsOn.length > 1 || anchors.length > 0;
+      if (hasDetails) {
+        name.append(
+          h(
+            'button',
+            {
+              class: `details-toggle${detailsOpen ? ' on' : ''}`,
+              'aria-expanded': String(detailsOpen),
+              'aria-label': detailsOpen ? 'Hide details' : 'Show details',
+              onClick: () => {
+                detailsOpen = !detailsOpen;
+                app.play('tap');
+                renderInfo();
+              },
+            },
+            detailsOpen ? 'Less' : 'More',
+          ),
+        );
+      }
       info.append(name);
-      const bar = h('div', { class: 'integrity', 'aria-label': `Integrity ${Math.round(integrity * 100)}%` }, h('i', { class: integrity < 0.4 ? 'bad' : integrity < 0.8 ? 'warn' : '', style: `width:${Math.round(integrity * 100)}%` }));
-      info.append(bar);
-      if (m.note) info.append(h('div', { class: 'note', text: m.note }));
-      const links = h('div', { class: 'links' });
-      links.append('Rests on ', h('b', { text: restsOn.join(', ') || 'nothing' }), '. ');
-      if (anchors.length) links.append('Fastened to ', h('b', { text: anchors.join(', ') }), '. ');
-      if (carries.length) links.append('Carries ', h('b', { class: 'carry', text: carries.join(', ') }), '. ');
-      else if (!m.anchors) links.append('Carries nothing. ');
-      if (scannerOn && ratio > 0.55) links.append(h('b', { class: 'carry', text: ` Load at ${Math.round(ratio * 100)}% of capacity.` }));
-      info.append(links);
+      // One line that always fits: what holds it up, what it holds, how sound it is.
+      const summary = h('div', { class: 'summary' });
+      const more = (list: string[]): string => (list.length > 1 ? `${list[0]} +${list.length - 1}` : list[0] ?? '');
+      summary.append(anchors.length ? 'Fastened to ' : 'On ', h('b', { text: anchors.length ? more(anchors) : more(restsOn) || 'nothing' }));
+      if (carries.length) summary.append(' · Carries ', h('b', { class: 'carry', text: more(carries) }));
+      if (integrity < 0.95) summary.append(' · ', h('b', { class: integrity < 0.4 ? 'bad' : 'warn', text: `${Math.round(integrity * 100)}% sound` }));
+      if (scannerOn && ratio > 0.55) summary.append(' · ', h('b', { class: 'carry', text: `Load ${Math.round(ratio * 100)}%` }));
+      if (!(detailsOpen && hasDetails)) info.append(summary);
+      if (detailsOpen && hasDetails) {
+        const details = h('div', { class: 'details' });
+        if (m.note) details.append(h('div', { class: 'note', text: m.note }));
+        const links = h('div', { class: 'links' });
+        links.append('Rests on ', h('b', { text: restsOn.join(', ') || 'nothing' }), '. ');
+        if (anchors.length) links.append('Fastened to ', h('b', { text: anchors.join(', ') }), '. ');
+        if (carries.length) links.append('Carries ', h('b', { class: 'carry', text: carries.join(', ') }), '.');
+        details.append(links);
+        info.append(details);
+      }
       if (!m.protect) {
         const preview = previewCharge(building, plan.charges, chargeType, m.id, powerMul, direction);
         const cls = preview.warnings.length ? 'effect warn' : preview.target.destroyed ? 'effect good' : 'effect';
-        const effect = h('div', { class: cls }, h('b', { text: `${def.name}: ` }), preview.summary);
-        for (const w of preview.warnings) effect.append(h('div', { text: `⚠ ${w}` }));
+        const effect = h('div', { class: cls }, h('b', { text: `${def.short}: ` }), preview.summary);
         const splashDamaged = preview.splash.filter((s) => !s.destroyed && s.fraction >= 0.2);
-        if (splashDamaged.length) effect.append(h('div', { text: `Also damages ${splashDamaged.map((s) => `${s.label} (${Math.round(s.fraction * 100)}%)`).join(', ')}.` }));
+        if (splashDamaged.length) effect.append(` Damages ${splashDamaged.map((s) => `${s.label} (${Math.round(s.fraction * 100)}%)`).join(', ')}.`);
+        for (const w of preview.warnings) effect.append(h('div', { class: 'w', text: `⚠ ${w}` }));
         info.append(effect);
       } else {
-        info.append(h('div', { class: 'effect warn', text: 'Contract requires this to stay standing. No charges here.' }));
+        info.append(h('div', { class: 'effect warn', text: 'Must stay standing. No charges here.' }));
       }
     }
 
