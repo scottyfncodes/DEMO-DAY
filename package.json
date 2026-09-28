@@ -1,0 +1,31 @@
+{
+  "name": "demo-day",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "DEMO DAY — a mobile-first demolition puzzle game.",
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "icons": "node scripts/generate-icons.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "tune": "vitest run --config scripts/vitest.tune.config.ts --reporter=verbose --disableConsoleIntercept",
+    "check": "pnpm typecheck && pnpm test && pnpm build"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.11"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
