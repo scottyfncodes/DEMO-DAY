@@ -1,5 +1,5 @@
-import { audio, type Cue } from './audio/audio';
-import type { ContractDef, SaveData } from './core/types';
+import { audio, type Cue, type Variant } from './audio/audio';
+import type { ContractDef, PlacedCharge, SaveData } from './core/types';
 import type { Payout } from './game/payout';
 import type { RunOutcome } from './game/progression';
 import { SaveStore } from './game/save';
@@ -38,6 +38,8 @@ export class App {
   private current?: ScreenInstance;
   currentName?: ScreenName;
   lastResult?: JobResult;
+  /** The plan from the last armed job, so "Run it again" can start from it. */
+  lastPlan?: { contractId: string; charges: PlacedCharge[] };
   private toastTimer?: number;
 
   constructor(root: HTMLElement, store = new SaveStore()) {
@@ -70,8 +72,8 @@ export class App {
     this.root.scrollTop = 0;
   }
 
-  play(cue: Cue, strength = 1): void {
-    this.audio.play(cue, strength);
+  play(cue: Cue, strength = 1, variant?: Variant): void {
+    this.audio.play(cue, strength, variant);
   }
 
   buzz(pattern: number | number[] = 12): void {

@@ -33,6 +33,8 @@ export class Camera {
   private anim?: { from: CameraTarget; to: CameraTarget; start: number; duration: number };
   shakeX = 0;
   shakeY = 0;
+  /** Momentary zoom kick (0.05 = 5% closer), for detonations and big landings. */
+  punch = 0;
 
   setViewport(width: number, height: number): void {
     this.viewportWidth = Math.max(1, width);
@@ -47,17 +49,24 @@ export class Camera {
     return this.insetTop + this.usableHeight / 2;
   }
 
+  /** Scale actually used for drawing, including the zoom punch. */
+  get drawScale(): number {
+    return this.scale * (1 + this.punch);
+  }
+
   worldToScreen(wx: number, wy: number): { x: number; y: number } {
+    const s = this.drawScale;
     return {
-      x: (wx - this.x) * this.scale + this.viewportWidth / 2 + this.shakeX,
-      y: -(wy - this.y) * this.scale + this.centreY + this.shakeY,
+      x: (wx - this.x) * s + this.viewportWidth / 2 + this.shakeX,
+      y: -(wy - this.y) * s + this.centreY + this.shakeY,
     };
   }
 
   screenToWorld(sx: number, sy: number): { x: number; y: number } {
+    const s = this.drawScale;
     return {
-      x: (sx - this.viewportWidth / 2 - this.shakeX) / this.scale + this.x,
-      y: -(sy - this.centreY - this.shakeY) / this.scale + this.y,
+      x: (sx - this.viewportWidth / 2 - this.shakeX) / s + this.x,
+      y: -(sy - this.centreY - this.shakeY) / s + this.y,
     };
   }
 

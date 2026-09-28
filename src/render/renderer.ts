@@ -1,11 +1,22 @@
+import { easeOutCubic } from '../core/format';
 import { hashString } from '../core/rng';
-import type { Material, MemberKind, NeighborDef, PlacedCharge } from '../core/types';
+import type { ChargeType, Direction, Material, MemberKind, NeighborDef, PlacedCharge } from '../core/types';
 import { CHARGES } from '../data/charges';
 import { MATERIALS } from '../data/materials';
 import { corners, type Chunk, type Simulation } from '../sim/simulation';
 import { chargePoint, type Building, type Member } from '../structure/building';
 import type { Camera } from './camera';
+import { drawCharge } from './charges';
 import type { Effects } from './effects';
+
+/** A charge that was just taken off, animating away. */
+export interface RemovedCharge {
+  type: ChargeType;
+  direction?: Direction;
+  x: number;
+  y: number;
+  at: number;
+}
 
 export interface SceneState {
   building: Building;
@@ -18,7 +29,19 @@ export interface SceneState {
   loadRatio?: Map<string, number>;
   mode: 'plan' | 'sim';
   time: number;
+  /** When each charge was placed (seconds, same clock as `time`). */
+  placedAt?: Map<string, number>;
+  removed?: RemovedCharge[];
+  /** Set once the job is armed: charges light up one after another. */
+  armedAt?: number;
+  /** Countdown progress 0..1: fuses burn down, lights race. */
+  burn?: number;
+  /** Members about to give way, 0..1: they shudder and crack first. */
+  strain?: Map<string, number>;
 }
+
+/** Delay between charges switching on during the arm sequence. */
+export const ARM_STAGGER = 0.11;
 
 export const UI_FONT = "'Barlow Condensed', 'Avenir Next Condensed', 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif";
 
@@ -49,9 +72,16 @@ interface Block {
   kind: MemberKind;
   integrity: number;
   id: string;
+  memberId: string;
   protect: boolean;
   isFragment: boolean;
   preDamage: number;
+}
+
+function easeOutBack(t: number): number {
+  const c1 = 1.9;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
 }
 
 /**
@@ -98,12 +128,13 @@ export class Renderer {
     const blocks = this.collectBlocks(state);
     // Standing and resting first so falling pieces draw on top.
     blocks.sort((a, b) => (a.isFragment ? 1 : 0) - (b.isFragment ? 1 : 0));
-    for (const b of blocks) this.drawBlock(b, cam, state);
+    for (const b of blocks) this.drawBlock(b, cam, state, fx);
 
     if (state.mode === 'plan') {
-      this.drawLinks(state, cam);
+      if (state.armedAt === undefined) this.drawLinks(state, cam);
       this.drawCharges(state, cam);
-      this.drawSelection(state, cam);
+      this.drawRemoved(state, cam);
+      if (state.armedAt === undefined) this.drawSelection(state, cam);
     }
     this.drawEffects(fx, cam);
   }
@@ -124,7 +155,7 @@ export class Renderer {
     for (let i = 0; i < 26; i++) {
       const hgt = 18 + ((i * 37 + seed) % 60);
       const wdt = 26 + ((i * 53) % 44);
-      const x = ((i * 97) % 1400) * (this.width / 1400) - 20 + (cam.x * -0.4 * cam.scale) / 20;
+      const x = ((i * 97) % 1400) * (this.width / 1400) - 20 + (cam.x * -0.4 * cam.drawScale) / 20;
       ctx.fillRect(x, base - hgt, wdt, hgt + 2);
     }
   }
@@ -170,7 +201,7 @@ export class Renderer {
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle = COLORS.zoneEdge;
-    ctx.font = `600 ${Math.max(11, Math.min(15, cam.scale * 0.5))}px ${UI_FONT}`;
+    ctx.font = `600 ${Math.max(11, Math.min(15, cam.drawScale * 0.5))}px ${UI_FONT}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('LANDING ZONE', (a.x + b.x) / 2, (a.y + b.y) / 2);
@@ -190,8 +221,8 @@ export class Renderer {
         ctx.fillStyle = '#2b2d33';
         ctx.fillRect(a.x, a.y, w, hgt);
         ctx.strokeStyle = '#d9c46a';
-        ctx.lineWidth = Math.max(1, cam.scale * 0.08);
-        ctx.setLineDash([cam.scale * 0.8, cam.scale * 0.6]);
+        ctx.lineWidth = Math.max(1, cam.drawScale * 0.08);
+        ctx.setLineDash([cam.drawScale * 0.8, cam.drawScale * 0.6]);
         ctx.beginPath();
         ctx.moveTo(a.x, a.y + hgt / 2);
         ctx.lineTo(b.x, a.y + hgt / 2);
@@ -201,12 +232,12 @@ export class Renderer {
       }
       case 'water': {
         ctx.fillStyle = '#1f4d6b';
-        ctx.fillRect(a.x, a.y, w, hgt + cam.scale * 1.2);
+        ctx.fillRect(a.x, a.y, w, hgt + cam.drawScale * 1.2);
         ctx.strokeStyle = 'rgba(160, 220, 255, 0.5)';
         ctx.lineWidth = 1.5;
         for (let i = 0; i < 3; i++) {
           ctx.beginPath();
-          const yy = a.y + 4 + i * Math.max(4, cam.scale * 0.25);
+          const yy = a.y + 4 + i * Math.max(4, cam.drawScale * 0.25);
           for (let x = a.x; x <= b.x; x += 6) {
             const off = Math.sin(x / 9 + i) * 2;
             if (x === a.x) ctx.moveTo(x, yy + off);
@@ -218,10 +249,10 @@ export class Renderer {
       }
       case 'fence': {
         ctx.fillStyle = '#7b6a55';
-        const picket = Math.max(3, cam.scale * 0.12);
-        const gap = Math.max(4, cam.scale * 0.22);
+        const picket = Math.max(3, cam.drawScale * 0.12);
+        const gap = Math.max(4, cam.drawScale * 0.22);
         for (let x = a.x; x < b.x; x += picket + gap) ctx.fillRect(x, a.y, picket, hgt);
-        ctx.fillRect(a.x, a.y + hgt * 0.35, w, Math.max(2, cam.scale * 0.08));
+        ctx.fillRect(a.x, a.y + hgt * 0.35, w, Math.max(2, cam.drawScale * 0.08));
         break;
       }
       case 'tank': {
@@ -257,8 +288,8 @@ export class Renderer {
         ctx.closePath();
         ctx.fill();
         ctx.fillStyle = '#f4e3a1';
-        const wx = Math.max(4, cam.scale * 0.6);
-        const wy = Math.max(4, cam.scale * 0.7);
+        const wx = Math.max(4, cam.drawScale * 0.6);
+        const wy = Math.max(4, cam.drawScale * 0.7);
         for (let i = 0; i < 3; i++) {
           for (let j = 0; j < 2; j++) {
             const px = a.x + w * (0.15 + i * 0.3);
@@ -274,7 +305,7 @@ export class Renderer {
     }
     ctx.restore();
     ctx.fillStyle = hit ? '#ff6a4d' : 'rgba(232, 230, 225, 0.85)';
-    ctx.font = `600 ${Math.max(11, Math.min(14, cam.scale * 0.45))}px ${UI_FONT}`;
+    ctx.font = `600 ${Math.max(11, Math.min(14, cam.drawScale * 0.45))}px ${UI_FONT}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
     ctx.fillText((hit ? '⚠ ' : '') + n.label.toUpperCase(), (a.x + b.x) / 2, a.y - 6);
@@ -321,6 +352,7 @@ export class Renderer {
           kind: c.kind,
           integrity: c.maxHp > 0 ? Math.max(0, c.hp) / c.maxHp : 1,
           id: c.id,
+          memberId: c.memberId,
           protect: c.protect,
           isFragment: c.isFragment,
           preDamage: c.isFragment ? 0 : (state.building.members.get(c.memberId)?.damage ?? 0),
@@ -340,6 +372,7 @@ export class Renderer {
         kind: m.kind,
         integrity: 1,
         id: m.id,
+        memberId: m.id,
         protect: !!m.protect,
         isFragment: false,
         preDamage: m.damage ?? 0,
@@ -348,15 +381,22 @@ export class Renderer {
     return out;
   }
 
-  private drawBlock(b: Block, cam: Camera, state: SceneState): void {
+  private drawBlock(b: Block, cam: Camera, state: SceneState, fx: Effects): void {
     const ctx = this.ctx;
-    const s = cam.scale;
+    const s = cam.drawScale;
     const p = cam.worldToScreen(b.cx, b.cy);
     const w = b.w * s;
     const hgt = b.h * s;
     const mat = MATERIALS[b.material];
+    const strain = b.isFragment ? 0 : (state.strain?.get(b.memberId) ?? 0);
     ctx.save();
     ctx.translate(p.x, p.y);
+    if (strain > 0) {
+      // Shudder before giving way: tiny, fast, growing.
+      const seed = hashString(b.id) % 7;
+      ctx.translate(Math.sin(state.time * 71 + seed) * 1.6 * strain, Math.cos(state.time * 53 + seed) * 0.8 * strain);
+      ctx.rotate(Math.sin(state.time * 47 + seed) * 0.012 * strain);
+    }
     ctx.rotate(-b.angle);
     const x0 = -w / 2;
     const y0 = -hgt / 2;
@@ -370,7 +410,13 @@ export class Renderer {
       ctx.fillStyle = `rgba(20, 10, 5, ${Math.min(0.55, Math.max(damage * 0.6, b.preDamage * 0.35))})`;
       ctx.fillRect(x0, y0, w, hgt);
     }
-    if ((b.preDamage > 0.3 || damage > 0.35) && !b.isFragment && s > 10) this.drawCracks(b, x0, y0, w, hgt);
+    if ((b.preDamage > 0.3 || damage > 0.35 || strain > 0.25) && !b.isFragment && s > 10) this.drawCracks(b, x0, y0, w, hgt);
+    if (strain > 0) {
+      ctx.fillStyle = `rgba(255, 90, 40, ${0.28 * strain})`;
+      ctx.fillRect(x0, y0, w, hgt);
+    }
+    const stress = fx.stress.get(b.memberId);
+    if (stress) this.drawStress(stress.kind, fx.now - stress.at, x0, y0, w, hgt, s, b.isFragment);
     // Edge.
     ctx.strokeStyle = mat.edge;
     ctx.lineWidth = Math.max(1, Math.min(3, s * 0.05));
@@ -391,6 +437,29 @@ export class Renderer {
       }
     }
     ctx.restore();
+  }
+
+  /** Flash that tells the player which member just went and which one now carries the load. */
+  private drawStress(kind: 'blast' | 'fail' | 'load' | 'strain', age: number, x0: number, y0: number, w: number, hgt: number, s: number, fragment: boolean): void {
+    const ctx = this.ctx;
+    if (kind === 'load') {
+      if (fragment || age > 0.9) return;
+      const a = (1 - age / 0.9) * (0.6 + 0.4 * Math.sin(age * 30));
+      ctx.strokeStyle = `rgba(255, 176, 32, ${a})`;
+      ctx.lineWidth = Math.max(2, s * 0.09);
+      ctx.strokeRect(x0 - 2, y0 - 2, w + 4, hgt + 4);
+      return;
+    }
+    const life = kind === 'blast' ? 0.3 : 0.5;
+    if (age > life) return;
+    const k = 1 - age / life;
+    ctx.fillStyle = kind === 'blast' ? `rgba(255, 245, 220, ${0.85 * k})` : `rgba(255, ${170 + 60 * k}, ${120 + 100 * k}, ${0.6 * k})`;
+    ctx.fillRect(x0, y0, w, hgt);
+    if (!fragment) {
+      ctx.strokeStyle = `rgba(255, 255, 255, ${0.9 * k})`;
+      ctx.lineWidth = Math.max(2, s * 0.08);
+      ctx.strokeRect(x0 - 1, y0 - 1, w + 2, hgt + 2);
+    }
   }
 
   private drawMaterialDetail(b: Block, x0: number, y0: number, w: number, hgt: number, s: number): void {
@@ -526,7 +595,7 @@ export class Renderer {
     const ctx = this.ctx;
     const b = state.building;
     const drawFor = (m: Member, alpha: number): void => {
-      ctx.lineWidth = Math.max(1.5, cam.scale * 0.06);
+      ctx.lineWidth = Math.max(1.5, cam.drawScale * 0.06);
       for (const link of m.restsOn) {
         const s = b.members.get(link.id) as Member;
         const from = cam.worldToScreen((link.from + link.to) / 2, m.y);
@@ -538,7 +607,7 @@ export class Renderer {
         ctx.lineTo(to.x, to.y);
         ctx.stroke();
         ctx.beginPath();
-        ctx.arc(to.x, to.y, Math.max(3, cam.scale * 0.1), 0, Math.PI * 2);
+        ctx.arc(to.x, to.y, Math.max(3, cam.drawScale * 0.1), 0, Math.PI * 2);
         ctx.fill();
       }
       for (const id of m.carries) {
@@ -584,6 +653,38 @@ export class Renderer {
     }
   }
 
+  private chargeSize(cam: Camera): number {
+    return Math.max(26, Math.min(46, cam.drawScale * 0.8));
+  }
+
+  /** Straps that visibly bind the charges to the member they sit on. */
+  private drawStraps(m: Member, cam: Camera, size: number, count: number): void {
+    const ctx = this.ctx;
+    const pt = chargePoint(m);
+    const p = cam.worldToScreen(pt.x, pt.y);
+    const a = cam.worldToScreen(m.x, m.y + m.h);
+    const b = cam.worldToScreen(m.x + m.w, m.y);
+    const vertical = m.kind === 'column' || m.kind === 'core' || m.kind === 'wall' || m.h > m.w;
+    const band = Math.max(3, size * 0.12);
+    ctx.save();
+    ctx.fillStyle = '#1b1d21';
+    ctx.strokeStyle = 'rgba(255, 210, 120, 0.55)';
+    ctx.lineWidth = 1;
+    const spread = size * (0.28 + 0.27 * (count - 1));
+    for (const off of [-1, 1]) {
+      if (vertical) {
+        const y = p.y + off * size * 0.3;
+        ctx.fillRect(a.x - 3, y - band / 2, b.x - a.x + 6, band);
+        ctx.strokeRect(a.x - 3, y - band / 2, b.x - a.x + 6, band);
+      } else {
+        const x = p.x + off * spread;
+        ctx.fillRect(x - band / 2, a.y - 3, band, b.y - a.y + 6);
+        ctx.strokeRect(x - band / 2, a.y - 3, band, b.y - a.y + 6);
+      }
+    }
+    ctx.restore();
+  }
+
   private drawCharges(state: SceneState, cam: Camera): void {
     const ctx = this.ctx;
     const grouped = new Map<string, PlacedCharge[]>();
@@ -592,44 +693,75 @@ export class Renderer {
       list.push(c);
       grouped.set(c.memberId, list);
     }
+    const size = this.chargeSize(cam);
+    const armed = state.armedAt !== undefined;
+    let index = 0;
     for (const [memberId, list] of grouped) {
       const m = state.building.members.get(memberId);
       if (!m) continue;
       const pt = chargePoint(m);
       const p = cam.worldToScreen(pt.x, pt.y);
-      const size = Math.max(22, Math.min(40, cam.scale * 0.7));
-      const pulse = 0.5 + 0.5 * Math.sin(state.time * 5);
+      this.drawStraps(m, cam, size, list.length);
       list.forEach((c, i) => {
         const def = CHARGES[c.type];
-        const off = (i - (list.length - 1) / 2) * (size * 0.55);
-        const x = p.x + off;
-        const y = p.y;
-        ctx.save();
-        ctx.shadowColor = def.color;
-        ctx.shadowBlur = 8 + pulse * 10;
-        ctx.fillStyle = def.color;
-        this.roundRect(x - size / 2, y - size / 2, size, size, size * 0.22);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-        ctx.lineWidth = 2;
-        this.roundRect(x - size / 2, y - size / 2, size, size, size * 0.22);
-        ctx.stroke();
-        ctx.fillStyle = '#111';
-        ctx.font = `800 ${size * 0.5}px ${UI_FONT}`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        const glyph = c.type === 'small' ? 'S' : c.type === 'heavy' ? 'H' : c.type === 'shaped' ? '◆' : c.direction === 'left' ? '◀' : '▶';
-        ctx.fillText(glyph, x, y + 1);
-        // Blinking arming light.
-        ctx.fillStyle = pulse > 0.5 ? '#ff3b3b' : '#5a1010';
+        const phase = (hashString(c.id) % 100) / 100;
+        const off = (i - (list.length - 1) / 2) * (size * 0.95);
+        let x = p.x + off;
+        let y = p.y + Math.sin(state.time * 2.4 + phase * 6) * size * 0.025;
+        let scale = 1;
+        let alpha = 1;
+        // Placement: drops onto the member, overshoots and locks.
+        const placed = state.placedAt?.get(c.id);
+        const age = placed === undefined ? 10 : state.time - placed;
+        if (age < 0.2) {
+          const t = Math.max(0, age / 0.2);
+          y -= (1 - easeOutBack(t)) * size * 0.9;
+          scale = 1 + (1 - t) * 0.3;
+          alpha = Math.min(1, t * 3);
+        }
+        // Arming: each charge switches on in turn.
+        let lit = 0;
+        let litAge = -1;
+        if (armed) {
+          litAge = state.time - (state.armedAt as number) - index * ARM_STAGGER;
+          lit = Math.max(0, Math.min(1, litAge / 0.12));
+          if (lit > 0) lit = Math.max(lit, 0.6 + (state.burn ?? 0) * 0.4);
+        }
+        // Soft halo so charges read against any material.
+        const pulse = 0.5 + 0.5 * Math.sin(state.time * (armed ? 9 + (state.burn ?? 0) * 12 : 3) + phase * 6);
+        const haloR = size * (0.85 + 0.25 * pulse + lit * 0.3);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, haloR);
+        g.addColorStop(0, this.rgba(def.color, (armed ? 0.35 + 0.25 * lit : 0.22) * alpha));
+        g.addColorStop(1, this.rgba(def.color, 0));
+        ctx.fillStyle = g;
         ctx.beginPath();
-        ctx.arc(x + size * 0.32, y - size * 0.32, size * 0.1, 0, Math.PI * 2);
+        ctx.arc(x, y, haloR, 0, Math.PI * 2);
         ctx.fill();
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        if (scale !== 1) {
+          ctx.translate(x, y);
+          ctx.scale(scale, scale);
+          x = 0;
+          y = 0;
+        }
+        drawCharge(ctx, c.type, x, y, size, { time: state.time, lit, burn: state.burn, direction: c.direction, phase });
         ctx.restore();
+        // "Locked in" ring after placement, and again when it goes live.
+        const ringAge = litAge >= 0 && litAge < 0.4 ? litAge : age >= 0.14 && age < 0.5 ? age - 0.14 : -1;
+        if (ringAge >= 0) {
+          const k = ringAge / (litAge >= 0 ? 0.4 : 0.36);
+          ctx.strokeStyle = this.rgba(litAge >= 0 ? '#ffffff' : def.color, 1 - k);
+          ctx.lineWidth = 3 * (1 - k) + 1;
+          ctx.beginPath();
+          ctx.arc(p.x + off, p.y, size * (0.55 + k * 0.7), 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        if (c.type === 'directional') this.drawPushHint(m, c.direction ?? 'left', cam, state, size, state.selectedId === memberId || armed);
+        index++;
       });
       // Blast radius hint for the last charge on the selected member.
-      if (state.selectedId === memberId) {
+      if (state.selectedId === memberId && !armed) {
         const last = list[list.length - 1] as PlacedCharge;
         const def = CHARGES[last.type];
         ctx.strokeStyle = def.color;
@@ -637,12 +769,96 @@ export class Renderer {
         ctx.lineWidth = 1.5;
         ctx.globalAlpha = 0.6;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, def.radius * cam.scale, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, Math.max(size * 0.7, def.radius * cam.drawScale), 0, Math.PI * 2);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.globalAlpha = 1;
       }
     }
+  }
+
+  /** Marching chevrons and a tipping arrow: which way this charge will lay the structure down. */
+  private drawPushHint(m: Member, direction: Direction, cam: Camera, state: SceneState, size: number, strong: boolean): void {
+    const ctx = this.ctx;
+    const dir = direction === 'left' ? -1 : 1;
+    const pt = chargePoint(m);
+    const p = cam.worldToScreen(pt.x, pt.y);
+    const alpha = strong ? 0.95 : 0.6;
+    ctx.save();
+    ctx.fillStyle = `rgba(56, 198, 255, ${alpha})`;
+    const step = size * 0.42;
+    for (let i = 0; i < 3; i++) {
+      const t = (state.time * 1.8 + i / 3) % 1;
+      const cx = p.x + dir * (size * 0.95 + t * step * 3);
+      const a = alpha * Math.sin(t * Math.PI);
+      ctx.globalAlpha = a;
+      ctx.beginPath();
+      ctx.moveTo(cx - dir * size * 0.14, p.y - size * 0.24);
+      ctx.lineTo(cx + dir * size * 0.14, p.y);
+      ctx.lineTo(cx - dir * size * 0.14, p.y + size * 0.24);
+      ctx.lineTo(cx - dir * size * 0.02, p.y);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // Tipping arrow over the member: the structure above falls this way.
+    const top = cam.worldToScreen(m.x + m.w / 2, m.y + m.h);
+    const span = Math.max(size * 1.6, cam.drawScale * 2.2);
+    const sx = top.x;
+    const sy = top.y - size * 0.6;
+    const ex = sx + dir * span;
+    const ey = sy + span * 0.55;
+    const cx = sx + dir * span * 0.85;
+    const cy = sy - span * 0.35;
+    ctx.strokeStyle = `rgba(56, 198, 255, ${alpha * 0.85})`;
+    ctx.lineWidth = Math.max(2.5, size * 0.1);
+    ctx.setLineDash([size * 0.25, size * 0.18]);
+    ctx.lineDashOffset = -state.time * 30 * dir;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.quadraticCurveTo(cx, cy, ex, ey);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Arrowhead along the curve's end tangent.
+    const tx = ex - cx;
+    const ty = ey - cy;
+    const len = Math.hypot(tx, ty) || 1;
+    const ux = tx / len;
+    const uy = ty / len;
+    const hs = size * 0.36;
+    ctx.fillStyle = `rgba(56, 198, 255, ${alpha})`;
+    ctx.beginPath();
+    ctx.moveTo(ex + ux * hs * 0.6, ey + uy * hs * 0.6);
+    ctx.lineTo(ex - ux * hs + uy * hs * 0.6, ey - uy * hs - ux * hs * 0.6);
+    ctx.lineTo(ex - ux * hs - uy * hs * 0.6, ey - uy * hs + ux * hs * 0.6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /** A removed charge pops off the member and fades. */
+  private drawRemoved(state: SceneState, cam: Camera): void {
+    if (!state.removed?.length) return;
+    const ctx = this.ctx;
+    const size = this.chargeSize(cam);
+    for (const r of state.removed) {
+      const k = (state.time - r.at) / 0.24;
+      if (k < 0 || k >= 1) continue;
+      const p = cam.worldToScreen(r.x, r.y);
+      const e = easeOutCubic(k);
+      ctx.save();
+      ctx.globalAlpha = 1 - k;
+      ctx.translate(p.x + e * size * 0.3, p.y - e * size * 0.8);
+      ctx.rotate(e * 0.6);
+      ctx.scale(1 - k * 0.45, 1 - k * 0.45);
+      drawCharge(ctx, r.type, 0, 0, size, { time: state.time, direction: r.direction });
+      ctx.restore();
+    }
+  }
+
+  private rgba(hex: string, a: number): string {
+    const n = parseInt(hex.slice(1), 16);
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${Math.max(0, Math.min(1, a))})`;
   }
 
   private drawSelection(state: SceneState, cam: Camera): void {
@@ -677,40 +893,111 @@ export class Renderer {
 
   private drawEffects(fx: Effects, cam: Camera): void {
     const ctx = this.ctx;
+    const sc = cam.drawScale;
+    // Dust and smoke first so flashes and debris sit on top.
+    for (const p of fx.puffs) {
+      if (p.fire) continue;
+      const t = p.life / p.maxLife;
+      const sp = cam.worldToScreen(p.x, p.y);
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = p.alpha * (1 - t) * (1 - t);
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, Math.max(1, p.r * sc), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // Debris chips, drawn with a direct transform (no save/restore per piece).
+    const dpr = this.dpr;
+    for (const d of fx.debris) {
+      const sp = cam.worldToScreen(d.x, d.y);
+      const fade = d.life > d.maxLife - 0.4 ? (d.maxLife - d.life) / 0.4 : 1;
+      const cos = Math.cos(-d.a);
+      const sin = Math.sin(-d.a);
+      ctx.setTransform(dpr * cos, dpr * sin, -dpr * sin, dpr * cos, dpr * sp.x, dpr * sp.y);
+      ctx.globalAlpha = fade;
+      ctx.fillStyle = d.color;
+      const w = Math.max(2, d.w * sc);
+      const h = Math.max(1.5, d.h * sc);
+      ctx.fillRect(-w / 2, -h / 2, w, h);
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.globalAlpha = 1;
+    // Shock rings.
+    for (const r of fx.rings) {
+      const t = r.life / r.maxLife;
+      const e = easeOutCubic(t);
+      const rad = (r.r0 + (r.r1 - r.r0) * e) * sc;
+      const p = cam.worldToScreen(r.x + r.drift * e, r.y);
+      ctx.strokeStyle = `rgba(${r.color}, ${(1 - t) * (r.ground ? 0.5 : 0.9)})`;
+      ctx.lineWidth = Math.max(1, r.width * (1 - t) + 1);
+      ctx.beginPath();
+      if (r.ground) {
+        ctx.ellipse(p.x, p.y, rad * r.stretch * 0.6, rad * 0.16 + 2, 0, Math.PI, Math.PI * 2);
+      } else {
+        ctx.ellipse(p.x, p.y, rad * r.stretch, rad, 0, 0, Math.PI * 2);
+      }
+      ctx.stroke();
+    }
+    // Fire, additive while hot.
+    ctx.globalCompositeOperation = 'lighter';
+    for (const p of fx.puffs) {
+      if (!p.fire) continue;
+      const t = p.life / p.maxLife;
+      const sp = cam.worldToScreen(p.x, p.y);
+      const g = Math.round(200 - t * 150);
+      const b = Math.round(90 - t * 80);
+      ctx.fillStyle = `rgba(255, ${g}, ${Math.max(0, b)}, ${p.alpha * (1 - t) * (1 - t)})`;
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, Math.max(1, p.r * sc), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (const j of fx.jets) {
+      const t = j.life / j.maxLife;
+      const p = cam.worldToScreen(j.x, j.y);
+      const len = j.length * sc * (0.4 + 0.6 * easeOutCubic(Math.min(1, t * 2.5)));
+      const wid = Math.max(3, j.width * sc * (1 - t * 0.6));
+      const ang = -j.angle;
+      const ex = p.x + Math.cos(ang) * len;
+      const ey = p.y + Math.sin(ang) * len;
+      const g = ctx.createLinearGradient(p.x, p.y, ex, ey);
+      g.addColorStop(0, `rgba(${j.core}, ${1 - t})`);
+      g.addColorStop(0.5, `rgba(${j.edge}, ${(1 - t) * 0.7})`);
+      g.addColorStop(1, `rgba(${j.edge}, 0)`);
+      ctx.strokeStyle = g;
+      ctx.lineCap = 'round';
+      ctx.lineWidth = wid;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
+    }
     for (const f of fx.flashes) {
       const t = f.life / f.maxLife;
       const p = cam.worldToScreen(f.x, f.y);
-      const r = (f.r + t * 3) * cam.scale;
+      const r = (f.r * (0.6 + 1.4 * easeOutCubic(t))) * sc;
       const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
-      grad.addColorStop(0, `rgba(255, 240, 200, ${(1 - t) * 0.95})`);
-      grad.addColorStop(0.4, `rgba(255, 150, 60, ${(1 - t) * 0.7})`);
-      grad.addColorStop(1, 'rgba(255, 80, 30, 0)');
+      grad.addColorStop(0, `rgba(255, 255, 245, ${1 - t})`);
+      grad.addColorStop(0.25, `rgba(255, 240, 200, ${(1 - t) * 0.9})`);
+      grad.addColorStop(0.55, `rgba(${f.tint}, ${(1 - t) * 0.6})`);
+      grad.addColorStop(1, `rgba(${f.tint}, 0)`);
       ctx.fillStyle = grad;
       ctx.beginPath();
       ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
       ctx.fill();
     }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.lineCap = 'butt';
     for (const s of fx.sparks) {
       const t = s.life / s.maxLife;
       const p = cam.worldToScreen(s.x, s.y);
       const q = cam.worldToScreen(s.x - s.vx * 0.03, s.y - s.vy * 0.03);
       ctx.strokeStyle = s.color;
       ctx.globalAlpha = 1 - t;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = s.width ?? 2;
       ctx.beginPath();
       ctx.moveTo(p.x, p.y);
       ctx.lineTo(q.x, q.y);
       ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-    for (const p of fx.puffs) {
-      const t = p.life / p.maxLife;
-      const sp = cam.worldToScreen(p.x, p.y);
-      ctx.fillStyle = p.color;
-      ctx.globalAlpha = p.alpha * (1 - t) * (1 - t);
-      ctx.beginPath();
-      ctx.arc(sp.x, sp.y, Math.max(1, p.r * cam.scale), 0, Math.PI * 2);
-      ctx.fill();
     }
     ctx.globalAlpha = 1;
   }
@@ -736,7 +1023,7 @@ export class Renderer {
   /** Finds the member under a screen point, with a touch-friendly slop. */
   hitTest(building: Building, cam: Camera, sx: number, sy: number): string | undefined {
     const w = cam.screenToWorld(sx, sy);
-    const slop = Math.max(0.15, 14 / cam.scale);
+    const slop = Math.max(0.15, 14 / cam.drawScale);
     let best: { id: string; dist: number; area: number } | undefined;
     for (const id of building.order) {
       const m = building.members.get(id) as Member;

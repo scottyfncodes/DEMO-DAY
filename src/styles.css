@@ -552,7 +552,7 @@ h3 {
   appearance: none;
   border: 0;
   border-radius: 12px;
-  min-height: 62px;
+  min-height: 66px;
   background: var(--bg-2);
   box-shadow: inset 0 0 0 1px var(--line);
   display: flex;
@@ -564,11 +564,26 @@ h3 {
   position: relative;
   padding: 6px 4px;
 }
+.tray .charge .icon {
+  display: block;
+  pointer-events: none;
+  transition: transform 160ms cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+.tray .charge.active .icon {
+  transform: scale(1.12) translateY(-1px);
+}
 .tray .charge .n {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  min-width: 20px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
   font-family: var(--font-display);
   font-weight: 800;
-  font-size: 22px;
-  line-height: 1;
+  font-size: 15px;
+  line-height: 1.1;
 }
 .tray .charge .t {
   font-family: var(--font-display);
@@ -777,6 +792,167 @@ h3 {
   pointer-events: none;
   animation: flash 500ms ease-out both;
 }
+.flash.big {
+  background: radial-gradient(circle at 50% 55%, #ffffff 0%, #fff0c8 40%, #ffb060 100%);
+  animation-duration: 680ms;
+}
+
+/* Showtime: planning UI slides away, the frame goes cinematic. */
+.job .job-top,
+.job .job-fab,
+.job .job-sheet {
+  transition: translate 380ms cubic-bezier(0.5, 0, 0.8, 0.4), opacity 300ms ease;
+}
+.job.showtime .job-top,
+.job.showtime .job-fab {
+  translate: 0 -140%;
+  opacity: 0;
+  pointer-events: none;
+}
+.job.showtime .job-fab {
+  translate: 160% 0;
+}
+.job.showtime .job-sheet {
+  translate: 0 110%;
+  opacity: 0;
+  pointer-events: none;
+}
+.letterbox {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.letterbox i {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: calc(var(--safe-top) + 34px);
+  background: #000;
+  top: 0;
+  translate: 0 -101%;
+  transition: translate 420ms cubic-bezier(0.2, 0.8, 0.2, 1) 120ms;
+}
+.letterbox i + i {
+  top: auto;
+  bottom: 0;
+  height: calc(var(--safe-bottom) + 34px);
+  translate: 0 101%;
+}
+.job.showtime .letterbox i {
+  translate: 0 0;
+}
+.letterbox::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: radial-gradient(ellipse at 50% 50%, transparent 45%, rgba(160, 20, 10, 0.55) 100%);
+  transition: opacity 300ms ease;
+}
+.job.showtime .letterbox::after {
+  opacity: calc(var(--tension, 0) * 0.9);
+  animation: tension-pulse 700ms ease-in-out infinite;
+}
+.job.hold .letterbox::after {
+  opacity: 0.4;
+  background: rgba(0, 0, 0, 0.45);
+  animation: none;
+}
+@keyframes tension-pulse {
+  50% {
+    filter: brightness(1.5);
+  }
+}
+
+/* Failure chain: a quiet running record of what gave way, in order. */
+.chain {
+  position: absolute;
+  left: calc(var(--safe-left) + 12px);
+  bottom: calc(var(--safe-bottom) + 44px);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  pointer-events: none;
+  max-width: 70%;
+}
+.chain .link {
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(232, 230, 225, 0.85);
+  background: rgba(10, 12, 16, 0.55);
+  padding: 2px 8px;
+  border-radius: 6px;
+  animation: link-in 220ms ease-out both, link-out 600ms ease-in 3.2s forwards;
+  white-space: nowrap;
+}
+.chain .link + .link::before {
+  content: '↓ ';
+  color: var(--accent);
+}
+.chain .link b {
+  font-weight: 800;
+  color: #fff;
+}
+.chain .link.blast b {
+  color: #ffb4a3;
+}
+.chain .link.major b {
+  color: var(--accent);
+}
+.chain .link .more {
+  color: var(--muted);
+}
+.chain .link.note {
+  color: var(--accent);
+  font-weight: 800;
+  background: rgba(40, 20, 0, 0.6);
+}
+@keyframes link-in {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+}
+@keyframes link-out {
+  to {
+    opacity: 0;
+  }
+}
+
+.overlay .settled {
+  font-family: var(--font-display);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.32em;
+  font-size: clamp(40px, 13vw, 84px);
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 6px 30px rgba(0, 0, 0, 0.7);
+  animation: settle-in 900ms ease-out both;
+  padding-left: 0.32em;
+}
+.overlay .settled.clean {
+  color: #ffd46b;
+  text-shadow: 0 0 30px rgba(255, 190, 60, 0.6), 0 6px 30px rgba(0, 0, 0, 0.7);
+}
+.overlay .sub.fail {
+  color: var(--danger);
+}
+@keyframes settle-in {
+  from {
+    opacity: 0;
+    letter-spacing: 0.6em;
+    filter: blur(6px);
+  }
+}
+.overlay.clear .big,
+.overlay.clear .count {
+  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.85), 0 0 60px rgba(255, 176, 32, 0.35);
+}
 @keyframes flash {
   from {
     opacity: 0.95;
@@ -892,11 +1068,16 @@ h3 {
 }
 
 /* ------------------------------------------------------------- payout */
-.payout {
-  background: radial-gradient(120% 70% at 50% 100%, #3a2a10 0%, var(--bg) 55%);
-  justify-content: center;
+.payout-block {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  opacity: 0;
 }
-.payout .label {
+.payout-block.in {
+  animation: rise 360ms cubic-bezier(0.2, 1, 0.3, 1) both;
+}
+.payout-block .label {
   font-family: var(--font-display);
   letter-spacing: 0.24em;
   text-transform: uppercase;
@@ -904,16 +1085,16 @@ h3 {
   font-size: 14px;
   text-align: center;
 }
-.payout .value {
+.payout-block .value {
   font-family: var(--font-display);
   font-weight: 800;
-  font-size: clamp(48px, 15vw, 84px);
+  font-size: clamp(44px, 14vw, 76px);
   text-align: center;
   line-height: 1;
-  margin: 6px 0 18px;
+  margin: 6px 0 16px;
   font-variant-numeric: tabular-nums;
 }
-.payout .value.partial {
+.payout-block .value.partial {
   color: var(--danger);
 }
 .bonus-list {
@@ -984,6 +1165,172 @@ h3 {
 .total .record {
   margin-top: 8px;
   display: inline-block;
+}
+.total.best {
+  background: linear-gradient(180deg, rgba(255, 212, 107, 0.32), rgba(255, 176, 32, 0.08));
+  box-shadow: inset 0 0 0 2px #ffd46b, 0 0 40px rgba(255, 190, 60, 0.3);
+}
+.best-banner {
+  margin-top: 10px;
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-size: 18px;
+  color: #ffd46b;
+  animation: pop 420ms cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+
+/* Replay hook: the gap to your best and where the money is. */
+.replay {
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--panel-solid);
+  box-shadow: inset 0 0 0 1px var(--line);
+  opacity: 0;
+}
+.replay:empty {
+  display: none;
+}
+.replay.in {
+  animation: rise 360ms cubic-bezier(0.2, 1, 0.3, 1) both;
+}
+.replay .cells {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  text-align: center;
+}
+.replay .cell small {
+  display: block;
+  font-family: var(--font-display);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-size: 12px;
+}
+.replay .cell b {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-variant-numeric: tabular-nums;
+}
+.replay .gap {
+  margin-top: 10px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 17px;
+  color: var(--accent);
+}
+.replay .gap.new-best {
+  color: #ffd46b;
+}
+.replay .gap.failed {
+  color: var(--muted);
+  font-size: 14px;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+}
+.missed-bonuses {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+.missed-bonuses li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+}
+.missed-bonuses li b {
+  color: var(--ok);
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.report .footer-actions {
+  opacity: 0;
+  pointer-events: none;
+}
+.report .footer-actions.in {
+  opacity: 1;
+  pointer-events: auto;
+  animation: rise 360ms cubic-bezier(0.2, 1, 0.3, 1) both;
+}
+.run-again {
+  min-height: 60px;
+  font-size: 20px !important;
+  letter-spacing: 0.14em;
+  animation: run-again 1.8s ease-in-out 1s infinite;
+}
+@keyframes run-again {
+  50% {
+    box-shadow: 0 0 0 6px rgba(255, 176, 32, 0.18), 0 0 28px rgba(255, 176, 32, 0.35);
+  }
+}
+
+/* Requirements checklist. */
+.reqs {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.reqs li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0;
+}
+.reqs li.in {
+  animation: rise 300ms cubic-bezier(0.2, 1, 0.3, 1) both;
+}
+.reqs li small {
+  flex-basis: 100%;
+  padding-left: 30px;
+  margin-top: -4px;
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+.reqs .mark {
+  width: 20px;
+  text-align: center;
+}
+.reqs li.met .mark {
+  color: var(--ok);
+}
+.reqs li.missed {
+  color: var(--danger);
+}
+.outcome-list {
+  opacity: 0;
+}
+.outcome-list.in {
+  opacity: 1;
+}
+.report-title h2.clean {
+  color: #ffd46b;
 }
 @keyframes total-in {
   from {
@@ -1097,10 +1444,14 @@ h3 {
 @media (prefers-reduced-motion: reduce) {
   .screen,
   .rrow.in,
+  .reqs li.in,
+  .replay.in,
+  .payout-block.in,
   .bonus,
   .total.in,
   .overlay .big,
-  .overlay .count {
+  .overlay .count,
+  .overlay .settled {
     animation-duration: 0.01ms !important;
   }
 }

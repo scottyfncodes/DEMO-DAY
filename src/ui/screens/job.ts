@@ -1,5 +1,5 @@
 import type { App, ScreenInstance } from '../../app';
-import type { ChargeType, Direction } from '../../core/types';
+import type { ChargeType, Direction, PlacedCharge } from '../../core/types';
 import { getBuilding } from '../../data/buildings';
 import { CHARGES, CHARGE_ORDER } from '../../data/charges';
 import { CONTRACT_TYPE_LABEL, getContract } from '../../data/contracts';
@@ -10,16 +10,28 @@ import { Plan } from '../../game/placement';
 import { previewCharge } from '../../game/preview';
 import { applyRun } from '../../game/progression';
 import { scoreRun } from '../../game/scoring';
-import { Camera } from '../../render/camera';
+import { CHAIN_WINDOW, STRAIN_LEAD, isNearPerfect, precomputeCollapse, type CollapseTimeline, type Failure } from '../../game/timeline';
+import { Camera, type Bounds } from '../../render/camera';
+import { paintChargeIcon } from '../../render/charges';
 import { Effects } from '../../render/effects';
-import { Renderer, type SceneState } from '../../render/renderer';
+import { ARM_STAGGER, Renderer, type RemovedCharge, type SceneState } from '../../render/renderer';
 import { Simulation, type SimEvent } from '../../sim/simulation';
-import { buildBuilding, type Member } from '../../structure/building';
+import { buildBuilding, chargePoint, type Member } from '../../structure/building';
 import { computeLoads } from '../../structure/support';
 import { h, wait } from '../dom';
 import { attachInput } from '../input';
 
 type Phase = 'plan' | 'armed' | 'countdown' | 'collapse' | 'settled';
+
+const DETONATION_PRIORITY: ChargeType[] = ['heavy', 'directional', 'shaped', 'small'];
+
+const CAUSE_VERB: Record<Failure['cause'], string> = {
+  blast: 'blasted',
+  crush: 'crushed',
+  drop: 'drops',
+  topple: 'tips over',
+  impact: 'smashed',
+};
 
 const KIND_LABEL: Record<Member['kind'], string> = {
   column: 'Column',
@@ -53,7 +65,20 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
   let lastFrame = performance.now();
   let simAccumulator = 0;
   let countdownSkip = false;
-  let settledAt = 0;
+  const placedAt = new Map<string, number>();
+  const removed: RemovedCharge[] = [];
+  let armedAt: number | undefined;
+  let burn = 0;
+  let timeline: CollapseTimeline | undefined;
+  const strain = new Map<string, number>();
+  const crackPlayed = new Set<string>();
+  const seenFailures = new Set<string>();
+  const recentCascade: number[] = [];
+  let chainLevel = 0;
+  let lastLanding = -1;
+  let totalMass = 0;
+  for (const m of building.members.values()) totalMass += m.stats.mass;
+  const clock = (): number => performance.now() / 1000;
 
   // ---------------------------------------------------------------- DOM
   const canvas = h('canvas', { 'aria-label': 'Building view. Tap a component to inspect it.', role: 'img' });
@@ -65,14 +90,17 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
 
   const fitButton = h('button', { class: 'btn btn-icon', 'aria-label': 'Fit building in view', onClick: () => { app.play('tap'); fitBuilding(true); } }, '⤢');
   const scannerButton = h('button', { class: `btn btn-icon${scannerOn ? ' btn-primary' : ''}`, 'aria-label': 'Toggle structural scanner', onClick: () => { scannerOn = !scannerOn; scannerButton.classList.toggle('btn-primary', scannerOn); app.play('inspect'); } }, '⌗');
-  const fab = h('div', { class: 'job-fab' }, fitButton, scannerOwned ? scannerButton : null);
+  const resetButton = h('button', { class: 'btn btn-icon', 'aria-label': 'Clear every charge', onClick: () => clearPlan() }, '↺');
+  const fab = h('div', { class: 'job-fab' }, fitButton, scannerOwned ? scannerButton : null, resetButton);
 
   const info = h('div', { class: 'job-info' });
   const tray = h('div', { class: 'tray', role: 'group', 'aria-label': 'Demolition loadout' });
   const actions = h('div', { class: 'actions' });
   const sheet = h('div', { class: 'job-sheet' }, info, tray, actions);
   const overlay = h('div', { class: 'overlay', style: 'display:none' });
-  const el = h('section', { class: 'screen job' }, stage, top, fab, sheet, overlay);
+  const chain = h('div', { class: 'chain', 'aria-live': 'polite' });
+  const letterbox = h('div', { class: 'letterbox', 'aria-hidden': 'true' }, h('i'), h('i'));
+  const el = h('section', { class: 'screen job' }, stage, chain, letterbox, top, fab, sheet, overlay);
 
   // ------------------------------------------------------------ render
   const renderer = new Renderer(canvas);
@@ -85,8 +113,9 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     const hgt = stage.clientHeight || window.innerHeight;
     renderer.resize(w, hgt);
     camera.setViewport(w, hgt);
-    camera.insetTop = 70;
-    camera.insetBottom = phase === 'plan' ? Math.min(hgt * 0.5, sheet.offsetHeight || 260) : 40;
+    const showtime = phase !== 'plan';
+    camera.insetTop = showtime ? 44 : 70;
+    camera.insetBottom = showtime ? 44 : Math.min(hgt * 0.5, sheet.offsetHeight || 260);
   };
 
   const sceneBounds = (): { minX: number; maxX: number; minY: number; maxY: number } => {
@@ -124,6 +153,43 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     return wide.maxX - wide.minX <= width * 2.4 ? wide : b;
   };
 
+  /** Everything the collapse will touch: site, neighbours and the settled debris. */
+  const showtimeBounds = (): Bounds => {
+    const b = wideBounds();
+    if (timeline) {
+      const d = timeline.settledBounds;
+      b.minX = Math.min(b.minX, d.minX - 1);
+      b.maxX = Math.max(b.maxX, d.maxX + 1);
+    }
+    return b;
+  };
+
+  /**
+   * Frames the whole site for the show. On a tall phone screen the fit is
+   * limited by width, so sit the ground low and give the sky to the collapse.
+   */
+  const showtimeTarget = (): { x: number; y: number; scale: number } => {
+    const b = showtimeBounds();
+    const t = camera.fitTarget(b, 1.2);
+    const halfH = Math.max(1, camera.viewportHeight - camera.insetTop - camera.insetBottom) / 2 / t.scale;
+    // Centre high enough that the ground sits about three quarters down, never losing it off-screen.
+    t.y = Math.max(t.y, Math.min(halfH * 0.5, halfH - 1.5));
+    return t;
+  };
+
+  /** Keeps the member being inspected clear of the bottom sheet (which grows when something is selected). */
+  const ensureVisible = (id: string): void => {
+    const m = building.members.get(id);
+    if (!m) return;
+    const pt = chargePoint(m);
+    const p = camera.worldToScreen(pt.x, pt.y);
+    const visibleTop = camera.insetTop + 30;
+    const visibleBottom = camera.viewportHeight - (sheet.offsetHeight || camera.insetBottom) - 30;
+    if (p.y >= visibleTop && p.y <= visibleBottom) return;
+    const target = (visibleTop + Math.max(visibleTop, visibleBottom)) / 2;
+    camera.animateTo({ x: camera.x, y: camera.y - (p.y - target) / camera.scale, scale: camera.scale }, 300, performance.now());
+  };
+
   const fitBuilding = (animate: boolean): void => {
     resize();
     if (animate) camera.animateFit(inspectBounds(), 1.4, 500, performance.now());
@@ -156,14 +222,17 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
       if (events.length) {
         effects.ingest(events);
         soundFor(events);
+        readFailures(events);
       }
+      updateStrain(sim.time);
       if (sim.done && phase === 'collapse') {
         phase = 'settled';
-        settledAt = now;
+        strain.clear();
         void finishJob();
       }
     }
     effects.update(dt);
+    camera.punch = app.reducedMotion ? 0 : effects.punch;
     if (!app.reducedMotion && effects.shake > 0) {
       const s = effects.shake * 9;
       camera.shakeX = (Math.random() - 0.5) * s;
@@ -181,28 +250,45 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
       loadRatio: phase === 'plan' && scannerOn ? ratios : undefined,
       mode: sim ? 'sim' : 'plan',
       time: now / 1000,
+      placedAt,
+      removed,
+      armedAt,
+      burn,
+      strain,
     };
     renderer.draw(state, camera, effects);
     raf = requestAnimationFrame(frame);
   };
 
   const soundFor = (events: SimEvent[]): void => {
+    const detonations = events.filter((e) => e.type === 'detonate');
+    if (detonations.length) {
+      // Every charge fires on the same tick: one layered boom, voiced by the biggest charge.
+      const types = new Set(detonations.map((e) => e.chargeType));
+      const lead = DETONATION_PRIORITY.find((t) => types.has(t)) ?? 'small';
+      app.play('detonate', Math.min(2, detonations.length / 2 + 0.5), lead);
+      app.buzz(lead === 'heavy' ? [60, 30, 120] : [30, 20, 60]);
+    }
     for (const e of events) {
       switch (e.type) {
-        case 'detonate':
-          app.play('detonate', e.strength);
-          app.buzz([30, 20, 60]);
-          break;
         case 'break':
         case 'shatter':
-          app.play('crumble', e.strength);
+          if (e.t > 0) app.play('crumble', e.strength);
           break;
         case 'crush':
           app.play('crumble', 1);
           break;
         case 'impact':
-          app.play('impact', e.strength);
-          if (e.strength > 0.5) app.buzz(15);
+          if (!e.fragment && (e.mass ?? 0) >= totalMass * 0.14 && e.strength > 0.5 && sim && sim.time - lastLanding > 0.4) {
+            // A big chunk of the building meeting the ground: the payoff hit.
+            lastLanding = sim.time;
+            effects.heavyLanding(e.x, e.y, e.material);
+            app.play('heavyLanding');
+            app.buzz([40, 20, 90]);
+          } else {
+            app.play('impact', e.strength);
+            if (e.strength > 0.5) app.buzz(15);
+          }
           break;
         case 'topple':
           app.play('topple');
@@ -212,6 +298,79 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
           break;
       }
     }
+  };
+
+  /** Members about to fail shudder and crack a beat before they go. */
+  const updateStrain = (t: number): void => {
+    strain.clear();
+    if (!timeline || phase !== 'collapse') return;
+    for (const f of timeline.failures) {
+      if (f.cause === 'blast') continue;
+      const lead = f.t - t;
+      if (lead <= 0 || lead > STRAIN_LEAD) continue;
+      strain.set(f.memberId, 1 - lead / STRAIN_LEAD);
+      if (lead < 0.14 && !crackPlayed.has(f.memberId)) {
+        crackPlayed.add(f.memberId);
+        app.play(f.major ? 'failMajor' : 'crack', f.major ? 1 : 0.6, f.material);
+        if (f.major) app.buzz(12);
+      }
+    }
+  };
+
+  /** Turns failures in the event stream into load-transfer flashes, the chain readout and escalation. */
+  const readFailures = (events: SimEvent[]): void => {
+    if (!timeline || !sim) return;
+    for (const e of events) {
+      if (!e.memberId || e.fragment || seenFailures.has(e.memberId)) continue;
+      const f = timeline.byMember.get(e.memberId);
+      if (!f || Math.abs(f.t - e.t) > 1e-6) continue;
+      seenFailures.add(f.memberId);
+      // The load it carried has nowhere to go: light those members up.
+      for (const id of f.carried) {
+        if (sim.chunkById.get(id)?.state === 'standing') effects.markStress(id, 'load');
+      }
+      addChainLink(f);
+      if (f.cause === 'blast') continue;
+      recentCascade.push(f.t);
+      while (recentCascade.length && f.t - (recentCascade[0] as number) > CHAIN_WINDOW) recentCascade.shift();
+      const n = recentCascade.length;
+      const level = n >= 8 ? 3 : n >= 5 ? 2 : n >= 3 ? 1 : 0;
+      if (level > chainLevel) {
+        // Things are going faster than planned: let the ground say so.
+        chainLevel = level;
+        app.play('rumble', level / 3);
+        effects.shake = Math.max(effects.shake, 0.5 + level * 0.25);
+        addChainNote(`Chain reaction ×${n}`);
+      }
+    }
+  };
+
+  let lastLinkAt = -1;
+  let lastLink: HTMLElement | undefined;
+  let lastLinkExtra = 0;
+  const addChainLink = (f: Failure): void => {
+    const t = clock();
+    if (lastLink && t - lastLinkAt < 0.18) {
+      // Several at once read as one line, not a wall of text.
+      lastLinkExtra++;
+      const more = lastLink.querySelector('.more') ?? lastLink.appendChild(h('span', { class: 'more' }));
+      more.textContent = ` +${lastLinkExtra}`;
+      return;
+    }
+    lastLinkAt = t;
+    lastLinkExtra = 0;
+    lastLink = h('div', { class: `link ${f.cause}${f.major ? ' major' : ''}` }, h('b', { text: f.label }), ` ${CAUSE_VERB[f.cause]}`);
+    chain.append(lastLink);
+    while (chain.children.length > 5) chain.firstElementChild?.remove();
+  };
+  let chainNote: HTMLElement | undefined;
+  const addChainNote = (text: string): void => {
+    // One escalating note, not a stack of them.
+    chainNote?.remove();
+    chainNote = h('div', { class: 'link note', text });
+    chain.append(chainNote);
+    lastLink = undefined;
+    while (chain.children.length > 5) chain.firstElementChild?.remove();
   };
 
   // ------------------------------------------------------------- sheet
@@ -235,10 +394,12 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
             renderInfo();
           },
         },
+        h('canvas', { class: 'icon', 'aria-hidden': 'true' }),
         h('span', { class: 'n', text: `${left}` }),
         h('span', { class: 't', text: def.short }),
         h('i', { class: 'bar' }),
       );
+      paintChargeIcon(button.querySelector('canvas') as HTMLCanvasElement, type, 30);
       tray.append(button);
     }
   };
@@ -317,14 +478,7 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
           {
             class: 'btn',
             disabled: onMember.length === 0,
-            onClick: () => {
-              if (plan.removeLastOn(m.id)) {
-                app.play('remove');
-                app.buzz(8);
-                renderTray();
-                renderInfo();
-              }
-            },
+            onClick: () => removeCharge(m.id),
           },
           onMember.length > 1 ? `Remove (${onMember.length})` : 'Remove',
         ),
@@ -340,6 +494,7 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
       plan.totalUsed() === 0 ? 'Place a charge to arm' : `Arm · ${plan.totalUsed()} charge${plan.totalUsed() === 1 ? '' : 's'} · Demo Day`,
     );
     actions.append(armButton);
+    resetButton.style.display = plan.totalUsed() > 0 && phase === 'plan' ? '' : 'none';
     resize();
   };
 
@@ -350,8 +505,43 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
       app.toast(result.reason, true, el);
       return;
     }
-    app.play('place');
+    placedAt.set(result.charge.id, clock());
+    app.play('place', 1, type);
+    window.setTimeout(() => {
+      if (!disposed) app.play('lock');
+    }, 150);
     app.buzz([12, 40, 18]);
+    renderTray();
+    renderInfo();
+  };
+
+  const ghost = (c: PlacedCharge): void => {
+    const m = building.members.get(c.memberId);
+    if (!m) return;
+    const pt = chargePoint(m);
+    removed.push({ type: c.type, direction: c.direction, x: pt.x, y: pt.y, at: clock() });
+    while (removed.length > 8) removed.shift();
+  };
+
+  const removeCharge = (memberId: string): void => {
+    const on = plan.chargesOn(memberId);
+    const last = on[on.length - 1];
+    if (!last || !plan.remove(last.id)) return;
+    ghost(last);
+    placedAt.delete(last.id);
+    app.play('remove');
+    app.buzz(8);
+    renderTray();
+    renderInfo();
+  };
+
+  const clearPlan = (): void => {
+    if (phase !== 'plan' || plan.totalUsed() === 0) return;
+    for (const c of plan.charges) ghost(c);
+    plan.clear();
+    placedAt.clear();
+    app.play('remove');
+    app.buzz(10);
     renderTray();
     renderInfo();
   };
@@ -369,6 +559,7 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
         app.play('tap');
       }
       renderInfo();
+      if (selectedId) ensureVisible(selectedId);
     },
     onPan: (dx, dy) => camera.panBy(dx, dy),
     onZoom: (x, y, f) => camera.zoomAt(x, y, f),
@@ -385,41 +576,64 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     phase = 'armed';
     plan.lock();
     selectedId = undefined;
+    app.lastPlan = { contractId: contract.id, charges: plan.charges.map((c) => ({ ...c })) };
+    // Same plan, same seed, same outcome: know the collapse before it happens.
+    timeline = precomputeCollapse(building, plan.charges, { powerMultiplier: powerMul }).timeline;
+    const quick = app.reducedMotion;
+    const count = plan.totalUsed();
+
+    // 1. Charges go live one after another; the planning UI gets out of the way.
+    armedAt = clock();
+    el.classList.add('showtime');
     app.play('arm');
     app.buzz([20, 40, 20, 40, 60]);
-    sheet.style.display = 'none';
-    fab.style.display = 'none';
-    backButton.style.display = 'none';
-    phasePill.textContent = 'Armed';
-    phasePill.className = 'pill danger';
+    for (let i = 0; i < count; i++) {
+      window.setTimeout(() => {
+        if (disposed) return;
+        app.play('armClick', count > 1 ? i / (count - 1) : 1);
+        app.buzz(8);
+      }, 120 + i * ARM_STAGGER * 1000);
+    }
+    window.setTimeout(() => {
+      if (disposed) return;
+      app.play('fuse');
+      app.play('warning');
+    }, 160 + count * ARM_STAGGER * 1000);
+    // 2. Pull back to show the whole site, including where the debris will go.
     resize();
-    camera.animateFit(wideBounds(), 1.2, 1400, performance.now());
-    const quick = app.reducedMotion;
+    camera.animateTo(showtimeTarget(), quick ? 300 : 1200, performance.now());
+
+    // 3. The "this is happening" beat.
+    overlay.classList.add('clear');
     showOverlay(h('div', { class: 'big', text: 'Everything is set.' }));
-    await wait(quick ? 400 : 1500);
+    await wait(quick ? 400 : 1200);
     if (disposed) return;
     showOverlay(h('div', { class: 'big accent', text: 'Welcome to Demo Day.' }), h('div', { class: 'sub', text: 'Get clear.' }));
-    await wait(quick ? 400 : 1700);
+    await wait(quick ? 400 : 1400);
     if (disposed) return;
+
+    // 4. Countdown: fuses burn down, lights race, the pulse climbs.
     phase = 'countdown';
-    phasePill.textContent = 'Countdown';
-    overlay.classList.add('clear');
     overlay.style.pointerEvents = 'auto';
     const skipHandler = (): void => {
       countdownSkip = true;
     };
     overlay.addEventListener('pointerdown', skipHandler);
-    let n = quick ? 3 : 10;
+    const from = quick ? 3 : 5;
+    let n = from;
     while (n >= 1) {
       if (disposed) return;
+      const tension = (from - n) / from;
+      burn = tension;
+      el.style.setProperty('--tension', tension.toFixed(2));
       showOverlay(
-        h('div', { class: 'status', text: 'Demo Day' }),
         h('div', { class: 'count', text: String(n) }),
-        n > 3 ? h('div', { class: 'sub', text: 'Tap to skip ahead' }) : h('div', { class: 'sub', text: n === 1 ? 'Brace' : 'Get clear' }),
+        h('div', { class: 'sub', text: n > 3 ? 'Tap to skip ahead' : n === 1 ? 'Brace' : 'Get clear' }),
       );
-      app.play(n <= 3 ? 'tickFinal' : 'tick');
+      app.play(n <= 3 ? 'tickFinal' : 'tick', tension);
+      app.play('heartbeat', tension);
       app.buzz(n <= 3 ? 30 : 10);
-      await wait(quick ? 350 : n <= 3 ? 800 : 650);
+      await wait(quick ? 300 : n <= 3 ? 720 : 620);
       if (countdownSkip && n > 3) {
         n = 3;
         countdownSkip = false;
@@ -429,22 +643,28 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     }
     overlay.removeEventListener('pointerdown', skipHandler);
     if (disposed) return;
-    showOverlay(h('div', { class: 'count go', text: 'Detonate' }));
-    detonate();
-    await wait(quick ? 300 : 700);
-    if (disposed) return;
+    // 5. A breath of silence, then everything at once.
+    burn = 1;
+    el.classList.add('hold');
     overlay.style.display = 'none';
+    await wait(quick ? 80 : 320);
+    if (disposed) return;
+    el.classList.remove('hold');
+    detonate();
   };
 
   const detonate = (): void => {
     phase = 'collapse';
-    phasePill.textContent = 'Detonation';
+    armedAt = undefined;
+    el.style.setProperty('--tension', '0');
     sim = new Simulation(building, plan.charges, { powerMultiplier: powerMul });
     simAccumulator = 0;
+    effects.now = 0;
     if (!app.reducedMotion) {
-      const flash = h('div', { class: 'flash' });
+      const heavy = plan.charges.some((c) => c.type === 'heavy');
+      const flash = h('div', { class: `flash${heavy ? ' big' : ''}` });
       el.append(flash);
-      window.setTimeout(() => flash.remove(), 600);
+      window.setTimeout(() => flash.remove(), 700);
     }
   };
 
@@ -456,17 +676,47 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     const outcome = applyRun(app.save, contract, report, payout);
     app.persist();
     app.lastResult = { contract, building, simResult: result, report, payout, outcome };
-    phasePill.textContent = 'Dust settling';
-    phasePill.className = 'pill';
-    showOverlay(h('div', { class: 'status', text: report.success ? 'Demolition complete' : 'Contract incomplete' }));
+    const quick = app.reducedMotion;
+    // Let the dust hang in near silence, drifting in slightly.
+    if (!quick) camera.animateTo({ x: camera.x, y: camera.y, scale: camera.scale * 1.04 }, 3200, performance.now());
+    await wait(quick ? 150 : 850);
+    if (disposed) return;
+    const clean = report.success && isNearPerfect(report.removed, report.efficiency);
     overlay.classList.add('clear');
-    const linger = app.reducedMotion ? 600 : 2600;
-    await wait(Math.max(0, linger - (performance.now() - settledAt)));
+    overlay.style.pointerEvents = 'auto';
+    showOverlay(
+      h('div', { class: `settled${clean ? ' clean' : ''}`, text: 'Settled' }),
+      h('div', { class: `sub${report.success ? '' : ' fail'}`, text: report.success ? 'Demolition complete' : 'Contract incomplete' }),
+    );
+    app.play('settled');
+    let leave = false;
+    overlay.addEventListener('pointerdown', () => {
+      leave = true;
+    }, { once: true });
+    const linger = quick ? 600 : 1700;
+    const start = performance.now();
+    while (!leave && performance.now() - start < linger) {
+      await wait(50);
+      if (disposed) return;
+    }
     if (disposed) return;
     app.go('report');
   };
 
   // ------------------------------------------------------------ mount
+  if (params.replay === '1' && app.lastPlan?.contractId === contract.id) {
+    // Run it again: start from the last plan so one change is one tap away.
+    const t0 = clock() + 0.35;
+    app.lastPlan.charges.forEach((c, i) => {
+      const r = plan.place(c.type, c.memberId, c.direction);
+      if (r.ok) placedAt.set(r.charge.id, t0 + i * 0.07);
+    });
+    if (plan.totalUsed() > 0) {
+      window.setTimeout(() => {
+        if (!disposed) app.toast('Last plan loaded · tweak it or ↺ clear', false, el);
+      }, 300);
+    }
+  }
   renderTray();
   renderInfo();
   const onResize = (): void => {
@@ -482,6 +732,7 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     place: (type: ChargeType, memberId: string, dir?: Direction): boolean => {
       if (dir) direction = dir;
       const r = plan.place(type, memberId, dir);
+      if (r.ok) placedAt.set(r.charge.id, clock());
       renderTray();
       renderInfo();
       return r.ok;
@@ -489,6 +740,7 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     select: (memberId: string): void => {
       selectedId = memberId;
       renderInfo();
+      ensureVisible(memberId);
     },
     arm: (): void => void arm(),
     skip: (): void => {
