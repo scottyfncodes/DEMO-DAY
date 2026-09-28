@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CONTRACTS, getContract } from '../src/data/contracts';
 import { EQUIPMENT } from '../src/data/equipment';
 import type { Payout } from '../src/game/payout';
-import { applyRun, canAfford, isUnlocked, purchase, recommendedContract, unlockedContracts } from '../src/game/progression';
+import { applyRun, canAfford, compareToBest, isUnlocked, purchase, recommendedContract, unlockedContracts } from '../src/game/progression';
 import { defaultSave } from '../src/game/save';
 import type { Report } from '../src/game/scoring';
 
@@ -85,6 +85,28 @@ describe('records', () => {
     expect(r.bestPayout).toBe(13000);
     expect(r.fewestCharges).toBe(2);
     expect(r.attempts).toBe(3);
+  });
+});
+
+describe('beating your best', () => {
+  it('remembers the best payout from before the run', () => {
+    const save = defaultSave();
+    const job = getContract('job01');
+    const first = applyRun(save, job, report(true), payout(true, 10000));
+    expect(first.previousBest).toBe(0);
+    const second = applyRun(save, job, report(true), payout(true, 9000));
+    expect(second.previousBest).toBe(10000);
+    const third = applyRun(save, job, report(true), payout(true, 12000));
+    expect(third.previousBest).toBe(10000);
+    expect(save.records.job01!.bestPayout).toBe(12000);
+  });
+
+  it('compares a run with the previous best', () => {
+    expect(compareToBest(10000, 0, true)).toEqual({ kind: 'first', best: 10000, delta: 10000 });
+    expect(compareToBest(12550, 11840, true)).toEqual({ kind: 'new-best', best: 12550, delta: 710 });
+    expect(compareToBest(11840, 12550, true)).toEqual({ kind: 'short', best: 12550, delta: 710 });
+    expect(compareToBest(12550, 12550, true)).toEqual({ kind: 'tied', best: 12550, delta: 0 });
+    expect(compareToBest(800, 12550, false)).toEqual({ kind: 'failed', best: 12550, delta: 11750 });
   });
 });
 

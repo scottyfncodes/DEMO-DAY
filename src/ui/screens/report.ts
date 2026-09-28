@@ -1,7 +1,10 @@
 import type { App, ScreenInstance } from '../../app';
 import { formatMoney, formatPercent } from '../../core/format';
 import { CONTRACTS, nextContract } from '../../data/contracts';
-import { isUnlocked } from '../../game/progression';
+import { missedBonuses } from '../../game/payout';
+import { compareToBest, isUnlocked } from '../../game/progression';
+import type { Requirement } from '../../game/scoring';
+import { isNearPerfect } from '../../game/timeline';
 import { countUp } from '../count';
 import { h, wait } from '../dom';
 
@@ -13,8 +16,10 @@ const OUTCOME_LABEL: Record<string, string> = {
 };
 
 /**
- * Two-stage results screen: the demolition report (numbers reveal one by
- * one), then the payout (contract value, bonuses, then the total lands).
+ * One continuous results sequence: the demolition report (numbers and
+ * requirements reveal one by one), then the payout (contract value, bonuses
+ * one at a time, the total lands), then the reason to run it again.
+ * Tapping anywhere hurries the reveal along.
  */
 export function reportScreen(app: App): ScreenInstance {
   const result = app.lastResult;
@@ -31,157 +36,249 @@ export function reportScreen(app: App): ScreenInstance {
     skip = true;
   });
 
+  const fast = (): boolean => instant || skip;
   const pause = async (ms: number): Promise<void> => {
-    if (instant || skip) return;
+    if (fast()) return;
     await wait(ms);
+  };
+  const reveal = (node: HTMLElement): void => {
+    node.classList.add('in');
+    if (!fast()) node.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   };
 
   // ------------------------------------------------------------ report
-  const renderReport = async (): Promise<void> => {
-    const rows: Array<{ el: HTMLElement; met?: boolean }> = [];
-    const row = (label: string, sub: string | undefined, value: string, valueSub?: string, met?: boolean): HTMLElement => {
-      const r = h(
-        'div',
-        { class: `rrow${met === undefined ? '' : met ? ' met' : ' missed'}` },
-        h('div', { class: 'k' }, label, sub ? h('small', { text: sub }) : null),
-        h('div', { class: 'v' }, value, valueSub ? h('small', { text: valueSub }) : null),
-      );
-      rows.push({ el: r, met });
-      return r;
-    };
-    const destruction = report.requirements.find((r) => r.id === 'destruction');
-    const collateral = report.requirements.find((r) => r.id === 'collateral');
-    const footprint = report.requirements.find((r) => r.id === 'footprint');
-    const protectedReq = report.requirements.find((r) => r.id === 'protected');
-
-    const list = h(
+  const row = (label: string, value: string, sub?: string, met?: boolean): HTMLElement =>
+    h(
       'div',
-      { class: 'report-rows' },
-      row('Structure Removed', `Required ${formatPercent(report.required, 0)}`, formatPercent(report.removed), destruction?.met ? 'Requirement met' : 'Below requirement', destruction?.met),
-      row('Collateral Damage', `Maximum ${formatPercent(report.maxCollateral, 0)}`, formatPercent(report.collateral), collateral?.met ? 'Within limit' : 'Over the limit', collateral?.met),
-      row('Target Footprint', footprint ? `Required ${formatPercent(report.targetFootprint, 0)}` : `Target ${formatPercent(report.targetFootprint, 0)}`, formatPercent(report.footprint, 0), footprint ? (footprint.met ? 'Debris in zone' : 'Debris outside zone') : report.footprint >= report.targetFootprint ? 'Bonus earned' : undefined, footprint ? footprint.met : undefined),
-      protectedReq ? row('Protected Structure', undefined, protectedReq.value, protectedReq.met ? 'Untouched' : 'Damaged', protectedReq.met) : null,
-      row('Charges Used', undefined, `${report.chargesUsed} / ${report.chargesAvailable}`, report.chargesUsed < report.chargesAvailable ? `${report.chargesAvailable - report.chargesUsed} returned` : 'All used'),
-      row('Structural Efficiency', 'Share brought down by gravity, not explosives', formatPercent(report.efficiency, 0), report.efficiency >= 0.6 ? 'Bonus earned' : undefined),
+      { class: `rrow${met === undefined ? '' : met ? ' met' : ' missed'}` },
+      h('div', { class: 'k', text: label }),
+      h('div', { class: 'v' }, h('span', { class: 'num', text: value }), sub ? h('small', { text: sub }) : null),
     );
 
+  const destruction = report.requirements.find((r) => r.id === 'destruction');
+  const collateral = report.requirements.find((r) => r.id === 'collateral');
+  const rows: Array<{ el: HTMLElement; count?: { to: number; fmt: (v: number) => string } }> = [
+    {
+      el: row('Structure Removed', formatPercent(0, 0), `Required ${formatPercent(report.required, 0)}`, destruction?.met),
+      count: { to: report.removed, fmt: (v) => formatPercent(v, v >= 0.995 ? 0 : 1) },
+    },
+    { el: row('Collateral', formatPercent(report.collateral), `Limit ${formatPercent(report.maxCollateral, 0)}`, collateral?.met) },
+    {
+      el: row('Charges Used', `${report.chargesUsed} / ${report.chargesAvailable}`, report.chargesUsed < report.chargesAvailable ? `${report.chargesAvailable - report.chargesUsed} returned` : 'All used'),
+    },
+    {
+      el: row('Structural Efficiency', formatPercent(0, 0), 'Brought down by gravity'),
+      count: { to: report.efficiency, fmt: (v) => formatPercent(v, 0) },
+    },
+  ];
+
+  const requirementLabel = (r: Requirement): string => {
+    switch (r.id) {
+      case 'destruction':
+        return report.required >= 0.95 ? 'Building cleared' : `${formatPercent(report.required, 0)} brought down`;
+      case 'collateral':
+        return (building.def.neighbors?.length ?? 0) > 0 ? 'Neighbours protected' : 'Collateral within limit';
+      case 'footprint':
+        return 'Debris in the landing zone';
+      case 'protected':
+        return 'Protected structure standing';
+    }
+  };
+  const reqItems = report.requirements.map((r) =>
+    h('li', { class: r.met ? 'met' : 'missed' }, h('span', { class: 'mark', text: r.met ? '✓' : '✗' }), requirementLabel(r), h('small', { text: `${r.value} · needs ${r.target}` })),
+  );
+  const reqList = h('ul', { class: 'reqs' }, ...reqItems);
+
+  const notes = h('div', { class: 'outcome-list' });
+  if (!report.success) {
     const standing = Object.entries(simResult.memberOutcome)
       .filter(([, o]) => o === 'standing' || o === 'resting')
       .map(([id, o]) => `${building.members.get(id)?.label ?? id} (${OUTCOME_LABEL[o]})`);
-    const neighborHits = Object.entries(report.neighborHits).filter(([, v]) => v > 0.05).map(([id]) => building.def.neighbors?.find((n) => n.id === id)?.label ?? id);
-    const notes = h('div', { class: 'outcome-list' });
-    if (standing.length) notes.append(h('div', {}, h('b', { text: 'Left standing: ' }), standing.slice(0, 6).join(', ') + (standing.length > 6 ? ` and ${standing.length - 6} more` : '')));
-    else notes.append(h('div', {}, h('b', { text: 'Nothing left standing.' })));
+    const neighborHits = Object.entries(report.neighborHits)
+      .filter(([, v]) => v > 0.05)
+      .map(([id]) => building.def.neighbors?.find((n) => n.id === id)?.label ?? id);
+    if (standing.length) notes.append(h('div', {}, h('b', { text: 'Left standing: ' }), standing.slice(0, 5).join(', ') + (standing.length > 5 ? ` and ${standing.length - 5} more` : '')));
     if (neighborHits.length) notes.append(h('div', {}, h('b', { text: 'Debris hit: ' }), neighborHits.join(', ')));
-    if (!report.success) {
-      const failed = report.requirements.filter((r) => !r.met).map((r) => r.label.toLowerCase());
-      notes.append(h('div', {}, h('b', { text: 'Why it failed: ' }), `missed ${failed.join(' and ')}. Adjust the plan and try again.`));
-    }
+  }
 
-    const continueButton = h('button', { class: 'btn btn-primary btn-block', style: 'visibility:hidden', onClick: () => void renderPayout() }, 'Continue to payout');
-    el.replaceChildren(
-      h(
-        'div',
-        { class: 'report-title' },
-        h('div', { class: 'kicker', text: `Job ${String(contract.jobNumber).padStart(2, '0')} · ${contract.title}` }),
-        h('h2', { class: report.success ? 'ok' : 'fail', text: report.success ? 'Demolition Complete' : 'Contract Incomplete' }),
-      ),
-      list,
-      notes,
-      h('div', { class: 'footer-actions' }, continueButton),
-    );
-    app.play(report.success ? 'unlock' : 'fail');
-    for (const r of rows) {
-      await pause(380);
-      if (disposed) return;
-      r.el.classList.add('in');
-      app.play(r.met === false ? 'error' : 'reveal');
-    }
-    continueButton.style.visibility = '';
-    skip = false;
-  };
+  const clean = report.success && isNearPerfect(report.removed, report.efficiency);
+  const header = h(
+    'div',
+    { class: 'report-title' },
+    h('div', { class: 'kicker', text: `Demolition Report · Job ${String(contract.jobNumber).padStart(2, '0')}` }),
+    h('h2', { class: report.success ? (clean ? 'ok clean' : 'ok') : 'fail', text: report.success ? contract.title : 'Contract Incomplete' }),
+  );
 
   // ------------------------------------------------------------ payout
-  const renderPayout = async (): Promise<void> => {
-    skip = false;
-    const valueEl = h('div', { class: `value${payout.success ? '' : ' partial'}`, text: formatMoney(0) });
-    const bonusList = h('div', { class: 'bonus-list' });
-    const totalValue = h('div', { class: 'value', text: formatMoney(0) });
-    const total = h('div', { class: 'total' }, h('div', { class: 'label', text: 'Total Payout' }), totalValue);
-    const buttons = h('div', { class: 'footer-actions', style: 'visibility:hidden' });
-    const next = nextContract(contract.id);
-    if (report.success && next && isUnlocked(next, app.save)) {
-      buttons.append(h('button', { class: 'btn btn-primary btn-block', onClick: () => { app.play('select'); app.go('contract', { id: next.id }); } }, `Next Contract · ${next.title}`));
-    }
-    buttons.append(
-      h('button', { class: `btn ${report.success ? '' : 'btn-primary'} btn-block`, onClick: () => { app.play('arm'); app.go('job', { id: contract.id }); } }, report.success ? 'Retry · Beat this payout' : 'Try again'),
-      h('div', { class: 'menu-grid' }, h('button', { class: 'btn', onClick: () => { app.play('tap'); app.go('contracts'); } }, 'Contracts'), h('button', { class: 'btn', onClick: () => { app.play('tap'); app.go('menu'); } }, 'Main Menu')),
-    );
-    el.className = 'screen scroll payout';
-    el.replaceChildren(
-      h('div', { class: 'label', text: payout.success ? 'Contract Value' : 'Partial Payment · Contract Incomplete' }),
-      valueEl,
-      bonusList,
-      total,
-      buttons,
-    );
+  const payoutBlock = h('div', { class: 'payout-block' });
+  const valueLabel = h('div', { class: 'label', text: payout.success ? 'Contract Value' : 'Partial Payment' });
+  const valueEl = h('div', { class: `value${payout.success ? '' : ' partial'}`, text: formatMoney(0) });
+  const bonusList = h('div', { class: 'bonus-list' });
+  const totalValue = h('div', { class: 'value', text: formatMoney(0) });
+  const total = h('div', { class: 'total' }, h('div', { class: 'label', text: 'Total Payout' }), totalValue);
+  const replay = h('div', { class: 'replay' });
+  const buttons = h('div', { class: 'footer-actions' });
 
-    const dur = (ms: number): number => (instant || skip ? 0 : ms);
+  el.replaceChildren(header, h('div', { class: 'report-rows' }, ...rows.map((r) => r.el)), reqList, notes, payoutBlock);
+
+  const run = async (): Promise<void> => {
+    app.play(report.success ? 'unlock' : 'fail');
+    await pause(350);
+    for (const r of rows) {
+      if (disposed) return;
+      reveal(r.el);
+      app.play(r.el.classList.contains('missed') ? 'error' : 'reveal');
+      if (r.count) {
+        const num = r.el.querySelector('.num') as HTMLElement;
+        const { to, fmt } = r.count;
+        let tick = 0;
+        await countUp(0, to, fast() ? 0 : 520, (v, t) => {
+          num.textContent = fmt(v);
+          if (t < 1 && ++tick % 4 === 0) app.play('countTick', t * 0.5);
+        });
+      }
+      await pause(260);
+    }
+    for (const li of reqItems) {
+      if (disposed) return;
+      await pause(200);
+      reveal(li);
+      app.play(li.classList.contains('met') ? 'select' : 'error');
+    }
+    notes.classList.add('in');
+    await pause(700);
+    if (disposed) return;
+    await runPayout();
+  };
+
+  const runPayout = async (): Promise<void> => {
+    payoutBlock.append(valueLabel, valueEl, bonusList, total, replay, buttons);
+    reveal(payoutBlock);
     let tick = 0;
-    await countUp(0, payout.base, dur(1100), (v, t) => {
+    await countUp(0, payout.base, fast() ? 0 : 900, (v, t) => {
       valueEl.textContent = formatMoney(v);
       if (t < 1 && ++tick % 3 === 0) app.play('countTick', t);
     });
     if (disposed) return;
-    let running = payout.base;
+    app.play('reveal');
     for (const b of payout.bonuses) {
-      await pause(420);
+      await pause(380);
       if (disposed) return;
-      bonusList.append(
-        h('div', { class: 'bonus' }, h('div', { class: 'k' }, b.label, h('small', { text: b.detail })), h('div', { class: 'v', text: `+${formatMoney(b.amount)}` })),
-      );
+      const amount = h('div', { class: 'v', text: '+$0' });
+      const line = h('div', { class: 'bonus' }, h('div', { class: 'k' }, b.label, h('small', { text: b.detail })), amount);
+      bonusList.append(line);
+      reveal(line);
       app.play('bonus');
       app.buzz(10);
-      running += b.amount;
+      await countUp(0, b.amount, fast() ? 0 : 320, (v) => {
+        amount.textContent = `+${formatMoney(v)}`;
+      });
     }
-    if (!payout.success && payout.bonuses.length === 0) {
-      bonusList.append(h('div', { class: 'hint', style: 'text-align:center;padding:10px', text: 'No bonuses on an incomplete contract. Full value and bonuses pay out when every requirement is met.' }));
+    if (!payout.success) {
+      bonusList.append(h('div', { class: 'hint', style: 'text-align:center;padding:10px', text: 'No bonuses on an incomplete contract. Meet every requirement for full value.' }));
     }
-    await pause(500);
+    await pause(450);
     if (disposed) return;
-    total.classList.add('in');
+    reveal(total);
     tick = 0;
-    await countUp(0, running, dur(1400), (v, t) => {
+    await countUp(0, payout.total, fast() ? 0 : 1200, (v, t) => {
       totalValue.textContent = formatMoney(v);
       if (t < 1 && ++tick % 2 === 0) app.play('countTick', t);
     });
     if (disposed) return;
     totalValue.textContent = formatMoney(payout.total);
+    const cmp = compareToBest(payout.total, outcome.previousBest, payout.success);
     if (payout.success) {
       app.play('total');
+      app.play('cash');
       app.buzz([40, 30, 80]);
       if (!instant) {
         total.classList.add('shake');
         window.setTimeout(() => total.classList.remove('shake'), 500);
       }
+      if (cmp.kind === 'new-best') {
+        await pause(350);
+        if (disposed) return;
+        total.classList.add('best');
+        total.append(h('div', { class: 'best-banner', text: 'New Best Payout' }));
+        app.play('newBest');
+        app.buzz([20, 30, 20, 30, 80]);
+      }
       const badges: string[] = [];
-      if (outcome.newRecords.includes('payout')) badges.push('New best payout');
       if (outcome.firstCompletion) badges.push('First completion');
       if (outcome.newRecords.includes('charges')) badges.push('Fewest charges');
       if (outcome.unlocked.length) badges.push(`Unlocked: ${outcome.unlocked.map((c) => c.title).join(', ')}`);
       if (badges.length) total.append(h('span', { class: 'pill ok record', text: badges.join(' · ') }));
-      else total.append(h('span', { class: 'pill record', text: `Best on this job: ${formatMoney(app.save.records[contract.id]?.bestPayout ?? payout.total)}` }));
     } else {
       app.play('fail');
     }
-    const done = app.save.completed.length;
-    if (done === CONTRACTS.length && report.success) {
-      total.append(h('div', { class: 'hint', style: 'margin-top:10px', text: 'Every contract on the board is complete. Now beat your own payouts.' }));
-    }
-    buttons.style.visibility = '';
+    await pause(400);
+    if (disposed) return;
+    renderReplay(cmp);
+    reveal(replay);
+    buttons.classList.add('in');
+    if (!fast()) buttons.scrollIntoView({ block: 'end', behavior: 'smooth' });
   };
 
-  void renderReport();
+  const renderReplay = (cmp: ReturnType<typeof compareToBest>): void => {
+    const best = h('div', { class: 'cell' }, h('small', { text: 'Best Payout' }), h('b', { text: formatMoney(cmp.best) }));
+    const now = h('div', { class: 'cell' }, h('small', { text: 'This Run' }), h('b', { text: formatMoney(payout.total) }));
+    let line: string;
+    switch (cmp.kind) {
+      case 'first':
+        line = 'First payout on this job. Now beat it.';
+        break;
+      case 'new-best':
+        line = `+${formatMoney(cmp.delta)} over your old best`;
+        break;
+      case 'tied':
+        line = 'Tied your best. One more bonus beats it.';
+        break;
+      case 'short':
+        line = `+${formatMoney(cmp.delta)} needed to beat your best`;
+        break;
+      case 'failed':
+        line = cmp.best > 0 ? `Your best here is ${formatMoney(cmp.best)}. Meet every requirement to get paid in full.` : 'Meet every requirement to get paid in full.';
+        break;
+    }
+    replay.replaceChildren(h('div', { class: 'cells' }, best, now), h('div', { class: `gap ${cmp.kind}`, text: line }));
+    const missed = missedBonuses(report, contract, payout).slice(0, 2);
+    if (missed.length) {
+      replay.append(
+        h(
+          'ul',
+          { class: 'missed-bonuses' },
+          ...missed.map((m) => h('li', {}, h('span', { text: m.tip }), h('b', { text: `+${formatMoney(m.potential)}` }))),
+        ),
+      );
+    }
+
+    const next = nextContract(contract.id);
+    buttons.replaceChildren(
+      h(
+        'button',
+        {
+          class: 'btn btn-primary btn-block run-again',
+          onClick: () => {
+            app.play('arm');
+            app.go('job', { id: contract.id, replay: '1' });
+          },
+        },
+        report.success ? 'Run It Again' : 'Try Again',
+      ),
+    );
+    if (report.success && next && isUnlocked(next, app.save)) {
+      buttons.append(h('button', { class: 'btn btn-block', onClick: () => { app.play('select'); app.go('contract', { id: next.id }); } }, `Next Job · ${next.title}`));
+    }
+    buttons.append(
+      h('div', { class: 'menu-grid' }, h('button', { class: 'btn', onClick: () => { app.play('tap'); app.go('contracts'); } }, 'Contracts'), h('button', { class: 'btn', onClick: () => { app.play('tap'); app.go('menu'); } }, 'Main Menu')),
+    );
+    if (app.save.completed.length === CONTRACTS.length && report.success) {
+      buttons.append(h('div', { class: 'hint', style: 'text-align:center', text: 'Every contract on the board is complete. Now beat your own payouts.' }));
+    }
+  };
+
+  void run();
   return {
     el,
     destroy: () => {

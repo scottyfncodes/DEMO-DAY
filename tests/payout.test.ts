@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { getContract } from '../src/data/contracts';
-import { computePayout, roundMoney } from '../src/game/payout';
+import { computePayout, missedBonuses, roundMoney } from '../src/game/payout';
 import type { Report } from '../src/game/scoring';
 
 function report(overrides: Partial<Report> = {}): Report {
@@ -84,5 +84,42 @@ describe('payout calculation', () => {
     expect(clean?.amount).toBe(roundMoney(contract.value * 0.12));
     expect(low?.amount).toBe(roundMoney(contract.value * 0.06));
     expect(none).toBeUndefined();
+  });
+});
+
+describe('missed bonuses (replay hints)', () => {
+  const contract = getContract('job01');
+
+  it('lists nothing for a failed run', () => {
+    const r = report({ success: false, removed: 0.5 });
+    expect(missedBonuses(r, contract, computePayout(r, contract))).toEqual([]);
+  });
+
+  it('prices one fewer charge with the real unused-charge formula', () => {
+    const r = report({ chargesUsed: 3, chargesAvailable: 3 });
+    const missed = missedBonuses(r, contract, computePayout(r, contract));
+    const saver = missed.find((m) => m.id === 'unused');
+    expect(saver?.potential).toBe(roundMoney(contract.value * 0.05));
+    // Using one fewer charge really does pay that much more.
+    const better = report({ chargesUsed: 2, chargesAvailable: 3 });
+    const gain = computePayout(better, contract).total - computePayout(r, contract).total;
+    expect(gain).toBe(saver!.potential);
+  });
+
+  it('offers only the upgrade from a partial collateral bonus', () => {
+    const r = report({ collateral: 0.05, maxCollateral: 0.15 });
+    const p = computePayout(r, contract);
+    const missed = missedBonuses(r, contract, p);
+    const col = missed.find((m) => m.id === 'collateral');
+    expect(col?.potential).toBe(roundMoney(contract.value * 0.12) - roundMoney(contract.value * 0.06));
+  });
+
+  it('omits bonuses already maxed and sorts biggest first', () => {
+    const r = report({ removed: 1, efficiency: 1, collateral: 0, footprint: 1, chargesUsed: 1 });
+    const missed = missedBonuses(r, contract, computePayout(r, contract));
+    expect(missed.map((m) => m.id)).not.toContain('sweep');
+    expect(missed.map((m) => m.id)).not.toContain('collateral');
+    expect(missed.map((m) => m.id)).not.toContain('unused');
+    for (let i = 1; i < missed.length; i++) expect(missed[i - 1]!.potential).toBeGreaterThanOrEqual(missed[i]!.potential);
   });
 });

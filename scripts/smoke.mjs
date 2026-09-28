@@ -46,31 +46,80 @@ async function main() {
   await snap(page, 'job-selected');
 
   await page.getByRole('button', { name: /Place SMALL/i }).click();
+  await page.waitForTimeout(90);
+  await snap(page, 'job-placing');
   await page.evaluate(() => window.__demoDayJob.select('post_r'));
   await page.getByRole('button', { name: /Place SMALL/i }).click();
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(500);
   await snap(page, 'job-placed');
 
   await page.getByRole('button', { name: /Arm ·/i }).click();
-  await page.waitForTimeout(1700);
+  await page.waitForTimeout(450);
+  await snap(page, 'armed');
+  await page.waitForTimeout(1400);
   await snap(page, 'demo-day-welcome');
   await page.waitForSelector('.count');
+  await page.waitForTimeout(700);
   await snap(page, 'countdown');
   await page.evaluate(() => window.__demoDayJob.skip());
   await page.waitForFunction(() => window.__demoDayJob && window.__demoDayJob.phase() === 'collapse', null, { timeout: 15000 });
-  await page.waitForTimeout(350);
+  await page.waitForTimeout(120);
+  await snap(page, 'detonation');
+  await page.waitForTimeout(700);
   await snap(page, 'collapse');
   await page.waitForTimeout(1200);
   await snap(page, 'collapse-late');
+  await page.waitForSelector('.overlay .settled', { timeout: 30000 });
+  await page.waitForTimeout(700);
+  await snap(page, 'settled');
 
   await page.waitForSelector('.report', { timeout: 30000 });
-  await page.waitForSelector('text=Continue to payout', { timeout: 15000 });
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(2600);
   await snap(page, 'report');
-  await page.getByRole('button', { name: /Continue to payout/i }).click();
-  await page.waitForSelector('.total.in', { timeout: 15000 });
-  await page.waitForTimeout(2200);
+  await page.waitForSelector('.run-again', { timeout: 30000 });
+  await page.waitForTimeout(1200);
   await snap(page, 'payout');
+
+  // Run it again: the last plan comes back so the player can tweak it.
+  await page.locator('.run-again').click();
+  await page.waitForSelector('.job-sheet');
+  const restored = await page.evaluate(() => window.__demoDayJob.plan.totalUsed());
+  if (restored !== 2) throw new Error(`Run it again restored ${restored} charges, expected 2`);
+  console.log('  ✓ run it again restores the last plan');
+  await page.waitForTimeout(700);
+  await snap(page, 'replay-plan');
+
+  // Every contract remains playable with a known winning plan.
+  const plans = {
+    job02: [['heavy', 'wall_l'], ['small', 'pier']],
+    job03: [['directional', 'leg_l', 'left']],
+    job04: [['heavy', 'chimney'], ['small', 'p1'], ['small', 'p2'], ['small', 'p3']],
+    job05: [['directional', 's1', 'left']],
+    job06: [['shaped', 'core'], ['shaped', 'core']],
+  };
+  for (const [id, plan] of Object.entries(plans)) {
+    await page.evaluate((jobId) => window.__demoDay.go('job', { id: jobId }), id);
+    await page.waitForSelector('.job-sheet');
+    await page.waitForTimeout(300);
+    const ok = await page.evaluate((p) => p.every(([t, m, d]) => window.__demoDayJob.place(t, m, d)), plan);
+    if (!ok) throw new Error(`${id}: could not place the plan`);
+    await page.evaluate((m) => window.__demoDayJob.select(m), plan[0][1]);
+    await page.waitForTimeout(400);
+    await snap(page, `${id}-plan`);
+    await page.evaluate(() => window.__demoDayJob.arm());
+    await page.waitForSelector('.count', { timeout: 10000 });
+    await page.evaluate(() => window.__demoDayJob.skip());
+    await page.waitForFunction(() => window.__demoDayJob && window.__demoDayJob.phase() === 'collapse', null, { timeout: 15000 });
+    await page.waitForTimeout(900);
+    await snap(page, `${id}-collapse`);
+    await page.waitForSelector('.report', { timeout: 40000 });
+    await page.waitForSelector('.run-again', { timeout: 40000 });
+    const success = await page.evaluate(() => window.__demoDay.lastResult.report.success);
+    if (!success) throw new Error(`${id}: winning plan failed in the app`);
+    await page.waitForTimeout(600);
+    await snap(page, `${id}-payout`);
+    console.log(`  ✓ ${id} playable`);
+  }
 
   const save = await page.evaluate(() => localStorage.getItem('demo-day:save'));
   if (!save || !save.includes('job01')) throw new Error('Save data was not persisted');

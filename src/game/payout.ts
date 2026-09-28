@@ -69,3 +69,42 @@ export function computePayout(report: Report, contract: ContractDef): Payout {
   const total = value + bonuses.reduce((acc, b) => acc + b.amount, 0);
   return { contractValue: value, base: value, bonuses, total, success: true };
 }
+
+/** Money on the table: a bonus this run did not (fully) earn, and how to get it. */
+export interface MissedBonus {
+  id: string;
+  label: string;
+  /** Extra money available with a better run, rounded like every payout. */
+  potential: number;
+  tip: string;
+}
+
+/**
+ * Works out which bonuses a successful run left behind, using the same
+ * formulas as computePayout, so the replay hint never promises money the
+ * scoring would not pay. Sorted biggest first. Empty for failed runs: the
+ * requirements come first.
+ */
+export function missedBonuses(report: Report, contract: ContractDef, payout: Payout): MissedBonus[] {
+  if (!payout.success) return [];
+  const value = contract.value;
+  const earned = (id: string): number => payout.bonuses.find((b) => b.id === id)?.amount ?? 0;
+  const out: MissedBonus[] = [];
+  const add = (id: string, label: string, best: number, tip: string): void => {
+    const potential = roundMoney(best - earned(id));
+    if (potential > 0) out.push({ id, label, potential, tip });
+  };
+
+  if (report.chargesUsed > 1) {
+    const unusedNow = Math.max(0, report.chargesAvailable - report.chargesUsed);
+    const withOneFewer = roundMoney(Math.min(value * 0.3, (unusedNow + 1) * value * 0.05));
+    add('unused', 'Charge Saver', withOneFewer, 'Do it with one fewer charge');
+  }
+  add('collateral', 'No-Collateral Bonus', roundMoney(value * 0.12), 'Keep collateral under 1%');
+  add('footprint', 'Clean Footprint', roundMoney(value * 0.08), `Land ${Math.round(report.targetFootprint * 100)}% of the debris in the zone`);
+  add('sweep', 'Clean Sweep', roundMoney(value * 0.1), 'Leave nothing standing');
+  add('efficiency', 'Structural Efficiency', roundMoney(value * 0.1), 'Blast less, let gravity do the work');
+  add('precision', 'Precision Bonus', roundMoney(value * 0.18), 'Bring down more than the minimum');
+  out.sort((a, b) => b.potential - a.potential);
+  return out;
+}
