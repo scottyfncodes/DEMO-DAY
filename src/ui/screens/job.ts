@@ -81,6 +81,33 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
   let totalMass = 0;
   for (const m of building.members.values()) totalMass += m.stats.mass;
   const clock = (): number => performance.now() / 1000;
+  /** Replay mode: re-run the last armed plan at half speed, then return to the report. */
+  const watching = params.watch === '1' && app.lastPlan?.contractId === contract.id && !!app.lastResult;
+  const baseSpeed = watching ? 0.55 : 1;
+
+  // Presentation clock: hit-stop and slow motion. The simulation still takes
+  // identical fixed 1/60 s steps, so the outcome never changes; only how fast
+  // those steps are shown.
+  let slow: { start: number; hold: number; factor: number; dur: number; ramp: number } | undefined;
+  let slowDips = 0;
+  const slowMo = (hold: number, factor: number, dur: number, ramp: number): void => {
+    if (app.reducedMotion) return;
+    if (slow && timeScale() <= factor * baseSpeed) return;
+    slow = { start: clock(), hold, factor, dur, ramp };
+  };
+  const timeScale = (): number => {
+    if (!slow) return baseSpeed;
+    const t = clock() - slow.start;
+    if (t < slow.hold) return 0;
+    const t2 = t - slow.hold;
+    if (t2 < slow.dur) return baseSpeed * slow.factor;
+    const k = (t2 - slow.dur) / slow.ramp;
+    if (k >= 1) {
+      slow = undefined;
+      return baseSpeed;
+    }
+    return baseSpeed * (slow.factor + (1 - slow.factor) * k * k);
+  };
 
   // ---------------------------------------------------------------- DOM
   const canvas = h('canvas', { 'aria-label': 'Building view. Tap a component to inspect it.', role: 'img' });
@@ -100,8 +127,22 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
   const sheet = h('div', { class: 'job-sheet' }, info, tray, actions);
   const overlay = h('div', { class: 'overlay', style: 'display:none' });
   const chain = h('div', { class: 'chain', 'aria-live': 'polite' });
+  // Live destruction meter: the number climbs as the building comes down.
+  const meterValue = h('b', { text: '0%' });
+  const meter = h(
+    'div',
+    { class: 'meter', 'aria-live': 'off' },
+    h('span', { class: 'k', text: 'Down' }),
+    meterValue,
+    h('small', { text: `Need ${Math.round(contract.requiredDestruction * 100)}%` }),
+  );
+  let meterShown = -1;
+  let meterMet = false;
+  let meterFrame = 0;
+  const replayTag = h('div', { class: 'replay-tag', text: 'Replay · ½ speed' });
   const letterbox = h('div', { class: 'letterbox', 'aria-hidden': 'true' }, h('i'), h('i'));
-  const el = h('section', { class: 'screen job' }, stage, chain, letterbox, top, fab, sheet, overlay);
+  const el = h('section', { class: 'screen job' }, stage, chain, meter, letterbox, top, fab, sheet, overlay);
+  if (watching) el.append(replayTag);
 
   // ------------------------------------------------------------ render
   const renderer = new Renderer(canvas);
@@ -213,8 +254,9 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     const dt = Math.min(0.05, (now - lastFrame) / 1000);
     lastFrame = now;
     camera.update(now);
+    const scale = sim ? timeScale() : 1;
     if (sim && (phase === 'collapse' || phase === 'settled')) {
-      simAccumulator += dt;
+      simAccumulator += dt * scale;
       const events: SimEvent[] = [];
       while (simAccumulator >= 1 / 60 && !sim.done) {
         events.push(...sim.step(1 / 60));
@@ -226,13 +268,15 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
         readFailures(events);
       }
       updateStrain(sim.time);
+      if (++meterFrame % 3 === 0 || sim.done) updateMeter();
       if (sim.done && phase === 'collapse') {
         phase = 'settled';
         strain.clear();
+        if (timeline) effects.settleHaze(timeline.settledBounds.minX, timeline.settledBounds.maxX);
         void finishJob();
       }
     }
-    effects.update(dt);
+    effects.update(dt * scale);
     camera.punch = app.reducedMotion ? 0 : effects.punch;
     if (!app.reducedMotion && effects.shake > 0) {
       const s = effects.shake * 9;
@@ -285,6 +329,11 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
             lastLanding = sim.time;
             effects.heavyLanding(e.x, e.y, e.material);
             app.play('heavyLanding');
+            // Let the big hit breathe: a short slow-motion dip, at most twice per run.
+            if (slowDips < 2) {
+              slowDips++;
+              slowMo(0.04, 0.35, 0.22, 0.4);
+            }
             app.buzz([40, 20, 90]);
           } else {
             app.play('impact', e.strength);
@@ -299,6 +348,50 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
           break;
       }
     }
+  };
+
+  const updateMeter = (): void => {
+    if (!sim) return;
+    let fraction: number;
+    if (sim.done) {
+      // Final number is the official one.
+      const r = sim.result();
+      fraction = r.targetMass > 0 ? r.removedMass / r.targetMass : 0;
+    } else {
+      // While it is coming down, count what has actually hit the ground (or been blown apart),
+      // so the number climbs with the impacts instead of jumping the moment things start to fall.
+      let down = 0;
+      let total = 0;
+      for (const id of building.order) {
+        const m = building.members.get(id) as Member;
+        if (m.protect) continue;
+        total += m.stats.mass;
+        const c = sim.chunkById.get(id);
+        if (!c) continue;
+        if (c.state === 'gone') down += m.stats.mass;
+        else if (c.state === 'resting' && !c.restingOn.some((r) => r !== 'ground' && sim?.chunkById.get(r)?.state === 'standing')) down += m.stats.mass;
+      }
+      fraction = total > 0 ? down / total : 0;
+    }
+    const pct = Math.min(100, Math.floor(fraction * 100 + 1e-6));
+    if (pct === meterShown) return;
+    const up = pct > meterShown;
+    meterShown = pct;
+    meterValue.textContent = `${pct}%`;
+    if (up && !app.reducedMotion) {
+      meter.classList.remove('bump');
+      void meter.offsetWidth;
+      meter.classList.add('bump');
+    }
+    const met = pct / 100 + 1e-9 >= contract.requiredDestruction;
+    if (met && !meterMet) {
+      // Crossing the contract's bar is its own little win.
+      meterMet = true;
+      meter.classList.add('met');
+      app.play('reveal');
+      app.buzz(12);
+    }
+    meter.classList.toggle('full', pct >= 100);
   };
 
   /** Members about to fail shudder and crack a beat before they go. */
@@ -339,6 +432,10 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
       if (level > chainLevel) {
         // Things are going faster than planned: let the ground say so.
         chainLevel = level;
+        if (level >= 2 && slowDips < 2) {
+          slowDips++;
+          slowMo(0, 0.5, 0.25, 0.35);
+        }
         app.play('rumble', level / 3);
         effects.shake = Math.max(effects.shake, 0.5 + level * 0.25);
         addChainNote(`Chain reaction ×${n}`);
@@ -688,6 +785,9 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     sim = new Simulation(building, plan.charges, { powerMultiplier: powerMul });
     simAccumulator = 0;
     effects.now = 0;
+    el.classList.add('live');
+    // Hit-stop on the flash, then the first beat of the blast in slow motion.
+    slowMo(0.08, 0.3, 0.42, 0.55);
     if (!app.reducedMotion) {
       const heavy = plan.charges.some((c) => c.type === 'heavy');
       const flash = h('div', { class: `flash${heavy ? ' big' : ''}` });
@@ -698,6 +798,12 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
 
   const finishJob = async (): Promise<void> => {
     if (!sim) return;
+    if (watching) {
+      // A replay never scores or pays twice.
+      await wait(app.reducedMotion ? 300 : 1600);
+      if (!disposed) app.go('report', { instant: '1' });
+      return;
+    }
     const result = sim.result();
     const report = scoreRun(result, contract, plan.totalUsed(), plan.totalAvailable());
     const payout = computePayout(report, contract);
@@ -731,7 +837,38 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     app.go('report');
   };
 
+  /** Replay: straight to showtime with the last plan, no planning, no countdown. */
+  const startWatch = async (): Promise<void> => {
+    phase = 'armed';
+    plan.lock();
+    timeline = precomputeCollapse(building, plan.charges, { powerMultiplier: powerMul }).timeline;
+    el.classList.add('showtime');
+    resize();
+    const t = showtimeTarget();
+    camera.x = t.x;
+    camera.y = t.y;
+    camera.scale = t.scale;
+    armedAt = clock();
+    const leave = (): void => {
+      if (!disposed) app.go('report', { instant: '1' });
+    };
+    el.addEventListener('pointerdown', leave, { once: true });
+    await wait(900);
+    if (disposed) return;
+    burn = 1;
+    app.play('fuse');
+    await wait(350);
+    if (disposed) return;
+    detonate();
+  };
+
   // ------------------------------------------------------------ mount
+  if (params.watch === '1' && !watching) {
+    window.setTimeout(() => app.go('report'), 0);
+  }
+  if (watching && app.lastPlan) {
+    for (const c of app.lastPlan.charges) plan.place(c.type, c.memberId, c.direction);
+  }
   if (params.replay === '1' && app.lastPlan?.contractId === contract.id) {
     // Run it again: start from the last plan so one change is one tap away.
     const t0 = clock() + 0.35;
@@ -754,6 +891,7 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
   requestAnimationFrame(() => {
     fitBuilding(false);
     raf = requestAnimationFrame(frame);
+    if (watching) void startWatch();
   });
 
   const debugHooks = {

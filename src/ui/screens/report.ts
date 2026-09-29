@@ -21,7 +21,7 @@ const OUTCOME_LABEL: Record<string, string> = {
  * one at a time, the total lands), then the reason to run it again.
  * Tapping anywhere hurries the reveal along.
  */
-export function reportScreen(app: App): ScreenInstance {
+export function reportScreen(app: App, params: Record<string, string> = {}): ScreenInstance {
   const result = app.lastResult;
   if (!result) {
     app.go('menu');
@@ -30,7 +30,12 @@ export function reportScreen(app: App): ScreenInstance {
   const { contract, report, payout, outcome, simResult, building } = result;
   const instant = app.reducedMotion;
   let disposed = false;
-  let skip = false;
+  // Coming back from a replay: show the finished report straight away, quietly.
+  const returning = params.instant === '1';
+  let skip = returning;
+  const sfx = (...args: Parameters<App['play']>): void => {
+    if (!returning) app.play(...args);
+  };
   const el = h('section', { class: 'screen scroll report' });
   el.addEventListener('pointerdown', () => {
     skip = true;
@@ -122,19 +127,19 @@ export function reportScreen(app: App): ScreenInstance {
   el.replaceChildren(header, h('div', { class: 'report-rows' }, ...rows.map((r) => r.el)), reqList, notes, payoutBlock);
 
   const run = async (): Promise<void> => {
-    app.play(report.success ? 'unlock' : 'fail');
+    sfx(report.success ? 'unlock' : 'fail');
     await pause(350);
     for (const r of rows) {
       if (disposed) return;
       reveal(r.el);
-      app.play(r.el.classList.contains('missed') ? 'error' : 'reveal');
+      sfx(r.el.classList.contains('missed') ? 'error' : 'reveal');
       if (r.count) {
         const num = r.el.querySelector('.num') as HTMLElement;
         const { to, fmt } = r.count;
         let tick = 0;
         await countUp(0, to, fast() ? 0 : 520, (v, t) => {
           num.textContent = fmt(v);
-          if (t < 1 && ++tick % 4 === 0) app.play('countTick', t * 0.5);
+          if (t < 1 && ++tick % 4 === 0) sfx('countTick', t * 0.5);
         });
       }
       await pause(260);
@@ -143,7 +148,7 @@ export function reportScreen(app: App): ScreenInstance {
       if (disposed) return;
       await pause(200);
       reveal(li);
-      app.play(li.classList.contains('met') ? 'select' : 'error');
+      sfx(li.classList.contains('met') ? 'select' : 'error');
     }
     notes.classList.add('in');
     await pause(700);
@@ -157,10 +162,10 @@ export function reportScreen(app: App): ScreenInstance {
     let tick = 0;
     await countUp(0, payout.base, fast() ? 0 : 900, (v, t) => {
       valueEl.textContent = formatMoney(v);
-      if (t < 1 && ++tick % 3 === 0) app.play('countTick', t);
+      if (t < 1 && ++tick % 3 === 0) sfx('countTick', t);
     });
     if (disposed) return;
-    app.play('reveal');
+    sfx('reveal');
     for (const b of payout.bonuses) {
       await pause(380);
       if (disposed) return;
@@ -168,7 +173,7 @@ export function reportScreen(app: App): ScreenInstance {
       const line = h('div', { class: 'bonus' }, h('div', { class: 'k' }, b.label, h('small', { text: b.detail })), amount);
       bonusList.append(line);
       reveal(line);
-      app.play('bonus');
+      sfx('bonus');
       app.buzz(10);
       await countUp(0, b.amount, fast() ? 0 : 320, (v) => {
         amount.textContent = `+${formatMoney(v)}`;
@@ -183,14 +188,14 @@ export function reportScreen(app: App): ScreenInstance {
     tick = 0;
     await countUp(0, payout.total, fast() ? 0 : 1200, (v, t) => {
       totalValue.textContent = formatMoney(v);
-      if (t < 1 && ++tick % 2 === 0) app.play('countTick', t);
+      if (t < 1 && ++tick % 2 === 0) sfx('countTick', t);
     });
     if (disposed) return;
     totalValue.textContent = formatMoney(payout.total);
     const cmp = compareToBest(payout.total, outcome.previousBest, payout.success);
     if (payout.success) {
-      app.play('total');
-      app.play('cash');
+      sfx('total');
+      sfx('cash');
       app.buzz([40, 30, 80]);
       if (!instant) {
         total.classList.add('shake');
@@ -201,7 +206,7 @@ export function reportScreen(app: App): ScreenInstance {
         if (disposed) return;
         total.classList.add('best');
         total.append(h('div', { class: 'best-banner', text: 'New Best Payout' }));
-        app.play('newBest');
+        sfx('newBest');
         app.buzz([20, 30, 20, 30, 80]);
       }
       const badges: string[] = [];
@@ -210,14 +215,15 @@ export function reportScreen(app: App): ScreenInstance {
       if (outcome.unlocked.length) badges.push(`Unlocked: ${outcome.unlocked.map((c) => c.title).join(', ')}`);
       if (badges.length) total.append(h('span', { class: 'pill ok record', text: badges.join(' · ') }));
     } else {
-      app.play('fail');
+      sfx('fail');
     }
     await pause(400);
     if (disposed) return;
     renderReplay(cmp);
     reveal(replay);
     buttons.classList.add('in');
-    if (!fast()) buttons.scrollIntoView({ block: 'end', behavior: 'smooth' });
+    // Back from a replay, land on the buttons: the next move is the point.
+    if (!fast() || returning) buttons.scrollIntoView({ block: 'end', behavior: returning ? 'auto' : 'smooth' });
   };
 
   const renderReplay = (cmp: ReturnType<typeof compareToBest>): void => {
@@ -267,6 +273,21 @@ export function reportScreen(app: App): ScreenInstance {
         report.success ? 'Run It Again' : 'Try Again',
       ),
     );
+    if (app.lastPlan?.contractId === contract.id) {
+      buttons.append(
+        h(
+          'button',
+          {
+            class: 'btn btn-block watch',
+            onClick: () => {
+              app.play('tap');
+              app.go('job', { id: contract.id, watch: '1' });
+            },
+          },
+          '▶ Watch the Replay',
+        ),
+      );
+    }
     if (report.success && next && isUnlocked(next, app.save)) {
       buttons.append(h('button', { class: 'btn btn-block', onClick: () => { app.play('select'); app.go('contract', { id: next.id }); } }, `Next Job · ${next.title}`));
     }
