@@ -7,7 +7,7 @@ import { corners, type Chunk, type Simulation } from '../sim/simulation';
 import { chargePoint, type Building, type Member } from '../structure/building';
 import type { Camera } from './camera';
 import { drawCharge } from './charges';
-import type { Effects } from './effects';
+import { RUBBLE_MATERIALS, type Effects } from './effects';
 
 /** A charge that was just taken off, animating away. */
 export interface RemovedCharge {
@@ -38,6 +38,8 @@ export interface SceneState {
   burn?: number;
   /** Members about to give way, 0..1: they shudder and crack first. */
   strain?: Map<string, number>;
+  /** Landed pieces breaking up into rubble, 0..1; 1 = gone into the heap. */
+  crumble?: Map<string, number>;
 }
 
 /** Delay between charges switching on during the arm sequence. */
@@ -76,6 +78,8 @@ interface Block {
   protect: boolean;
   isFragment: boolean;
   preDamage: number;
+  /** 0..1 while a landed piece breaks up into the rubble heap. */
+  squash?: number;
 }
 
 function easeOutBack(t: number): number {
@@ -123,7 +127,7 @@ export class Renderer {
     this.drawGround(state, cam);
     this.drawZone(state, cam);
     for (const n of state.building.def.neighbors ?? []) this.drawNeighbor(n, cam, state.sim);
-    if (state.sim) this.drawRubble(state.sim, cam);
+    if (state.sim) this.drawRubble(state.sim, cam, fx);
 
     const blocks = this.collectBlocks(state);
     // Standing and resting first so falling pieces draw on top.
@@ -311,15 +315,30 @@ export class Renderer {
     ctx.fillText((hit ? '⚠ ' : '') + n.label.toUpperCase(), (a.x + b.x) / 2, a.y - 6);
   }
 
-  private drawRubble(sim: Simulation, cam: Camera): void {
+  private drawRubble(sim: Simulation, cam: Camera, fx: Effects): void {
     const ctx = this.ctx;
     const hm = sim.heightmap;
     const cell = (sim.groundMaxX - sim.groundMinX) / (hm.length - 1 || 1);
+    const extra = fx.rubble && fx.rubble.h.length === hm.length ? fx.rubble : undefined;
+    const raw = (i: number): number => (hm[i] as number) + (extra ? (extra.h[i] as number) : 0);
+    // Draw the heap softened (a small moving average) so it reads as a pile, not a row of spikes.
+    const R = 4;
+    const smooth = new Float32Array(hm.length);
+    for (let i = 0; i < hm.length; i++) {
+      let sum = 0;
+      let n = 0;
+      for (let k = Math.max(0, i - R); k <= Math.min(hm.length - 1, i + R); k++) {
+        sum += raw(k);
+        n++;
+      }
+      smooth[i] = sum / n;
+    }
+    const heightAt = (i: number): number => smooth[i] as number;
     ctx.beginPath();
     let started = false;
     for (let i = 0; i < hm.length; i++) {
       const x = sim.groundMinX + i * cell;
-      const hgt = hm[i] as number;
+      const hgt = heightAt(i);
       const p = cam.worldToScreen(x, Math.max(0, hgt));
       if (!started) {
         ctx.moveTo(p.x, cam.worldToScreen(x, 0).y);
@@ -335,6 +354,26 @@ export class Renderer {
     ctx.strokeStyle = COLORS.rubbleTop;
     ctx.lineWidth = 2;
     ctx.stroke();
+    if (!extra) return;
+    // Broken pieces in the heap, coloured by what fell there. Positions are hashed so they do not shimmer.
+    const s = cam.drawScale;
+    for (let i = 0; i < hm.length; i++) {
+      const top = heightAt(i);
+      const m = extra.mat[i] as number;
+      if (top < 0.08 || m === 255) continue;
+      const mat = MATERIALS[RUBBLE_MATERIALS[m] as Material];
+      const x = sim.groundMinX + i * cell;
+      const count = Math.min(4, 1 + Math.floor(top * 2));
+      for (let k = 0; k < count; k++) {
+        const hsh = hashString(`${i}:${k}`);
+        const px = x + ((hsh % 100) / 100) * cell;
+        const py = top * (((hsh >>> 8) % 100) / 100) * 0.95;
+        const size = Math.max(1.5, (0.08 + ((hsh >>> 16) % 10) / 60) * s);
+        const p = cam.worldToScreen(px, py);
+        ctx.fillStyle = k % 3 === 0 ? mat.edge : k % 3 === 1 ? mat.rubble : mat.color;
+        ctx.fillRect(p.x - size / 2, p.y - size * 0.35, size, size * 0.7);
+      }
+    }
   }
 
   private collectBlocks(state: SceneState): Block[] {
@@ -342,7 +381,10 @@ export class Renderer {
     if (state.sim) {
       for (const c of state.sim.chunks) {
         if (c.state === 'gone') continue;
+        const crumble = state.crumble?.get(c.id) ?? 0;
+        if (crumble >= 1) continue;
         out.push({
+          squash: crumble,
           cx: c.cx,
           cy: c.cy,
           w: c.w,
@@ -396,6 +438,13 @@ export class Renderer {
       const seed = hashString(b.id) % 7;
       ctx.translate(Math.sin(state.time * 71 + seed) * 1.6 * strain, Math.cos(state.time * 53 + seed) * 0.8 * strain);
       ctx.rotate(Math.sin(state.time * 47 + seed) * 0.012 * strain);
+    }
+    const squash = b.squash ?? 0;
+    if (squash > 0) {
+      // Sag into the ground and spread as it breaks up.
+      ctx.translate(0, (hgt / 2) * squash * 0.9);
+      ctx.scale(1 + squash * 0.25, Math.max(0.05, 1 - squash * 0.95));
+      ctx.globalAlpha = 1 - squash * 0.4;
     }
     ctx.rotate(-b.angle);
     const x0 = -w / 2;

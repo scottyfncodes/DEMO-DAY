@@ -125,6 +125,17 @@ const DUST: Record<Material, string> = {
   steel: '#9aa6b5',
 };
 
+export const RUBBLE_MATERIALS: Material[] = ['wood', 'brick', 'concrete', 'steel'];
+
+/** Cosmetic rubble: landed debris crumbles into this mound, cell-aligned with the simulation's ground grid. */
+export interface RubbleField {
+  minX: number;
+  cell: number;
+  h: Float32Array;
+  /** Material index (RUBBLE_MATERIALS) of the latest debris in each cell, 255 = none. */
+  mat: Uint8Array;
+}
+
 const MAX_PUFFS = 520;
 const MAX_DEBRIS = 360;
 const MAX_SPARKS = 260;
@@ -149,7 +160,56 @@ export class Effects {
   /** Seconds since effects began; used to age stress flashes. */
   now = 0;
   reducedMotion = false;
+  rubble?: RubbleField;
   private rng = new Rng(7);
+
+  initRubble(minX: number, cell: number, cells: number): void {
+    this.rubble = { minX, cell, h: new Float32Array(cells), mat: new Uint8Array(cells).fill(255) };
+  }
+
+  /**
+   * A landed block breaks up: its volume becomes a low mound of rubble under
+   * where it lay, with chips and a puff of dust. Purely visual.
+   */
+  crumble(minX: number, maxX: number, area: number, material: Material, cx: number, cy: number): void {
+    const f = this.rubble;
+    const amt = this.amount;
+    if (f) {
+      // Spread a bit wider than the piece and compact it: rubble packs lower than the block stood.
+      const spread = Math.max(0.6, (maxX - minX) * 0.6);
+      const a = minX - spread;
+      const b = maxX + spread;
+      const i0 = Math.max(0, Math.floor((a - f.minX) / f.cell));
+      const i1 = Math.min(f.h.length - 1, Math.ceil((b - f.minX) / f.cell));
+      const volume = area * 0.32;
+      let weight = 0;
+      for (let i = i0; i <= i1; i++) weight += Math.sin(((i - i0 + 0.5) / (i1 - i0 + 1)) * Math.PI);
+      const m = RUBBLE_MATERIALS.indexOf(material);
+      for (let i = i0; i <= i1; i++) {
+        const w = Math.sin(((i - i0 + 0.5) / (i1 - i0 + 1)) * Math.PI) / (weight || 1);
+        f.h[i] = (f.h[i] as number) + (volume * w) / f.cell;
+        if (w > 0.3 / (i1 - i0 + 1)) f.mat[i] = m;
+      }
+    }
+    const n = Math.min(26, Math.round((4 + area * 6) * amt));
+    this.chips(cx, Math.max(0.2, cy), material, n, 2.5 + Math.min(3, area), 1.2);
+    const puffs = Math.min(12, Math.round((3 + area * 3) * amt));
+    for (let i = 0; i < puffs; i++) {
+      this.puffs.push({
+        x: minX + (maxX - minX) * this.rng.next(),
+        y: Math.max(0.15, cy + this.rng.range(-0.4, 0.4)),
+        vx: this.rng.range(-1.6, 1.6),
+        vy: this.rng.range(0.2, 1.1),
+        r: this.rng.range(0.3, 0.6),
+        growth: this.rng.range(0.4, 0.9),
+        life: 0,
+        maxLife: this.rng.range(1.6, 2.8),
+        color: this.dustColor(material),
+        alpha: 0.38,
+        maxR: 2,
+      });
+    }
+  }
 
   clear(): void {
     this.puffs.length = 0;
@@ -517,11 +577,26 @@ export class Effects {
       if (j.life >= j.maxLife) this.jets.splice(i, 1);
     }
     for (const [id, s] of this.stress) if (this.now - s.at > 1.2) this.stress.delete(id);
+    if (this.rubble) this.slumpRubble();
     this.shake = Math.max(0, this.shake - dt * 1.8);
     this.punch = Math.max(0, this.punch - dt * 0.22);
     if (this.puffs.length > MAX_PUFFS) this.puffs.splice(0, this.puffs.length - MAX_PUFFS);
     if (this.debris.length > MAX_DEBRIS) this.debris.splice(0, this.debris.length - MAX_DEBRIS);
     if (this.sparks.length > MAX_SPARKS) this.sparks.splice(0, this.sparks.length - MAX_SPARKS);
+  }
+
+  /** Steep rubble slides sideways so heaps settle into mounds. */
+  private slumpRubble(): void {
+    const h = (this.rubble as RubbleField).h;
+    const maxStep = 0.11;
+    for (let i = 1; i < h.length; i++) {
+      const d = (h[i - 1] as number) - (h[i] as number);
+      if (Math.abs(d) > maxStep) {
+        const move = (Math.abs(d) - maxStep) * 0.25 * Math.sign(d);
+        h[i - 1] = (h[i - 1] as number) - move;
+        h[i] = (h[i] as number) + move;
+      }
+    }
   }
 
   get active(): boolean {
