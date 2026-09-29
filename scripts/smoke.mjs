@@ -126,6 +126,9 @@ async function main() {
     await page.waitForFunction(() => window.__demoDayJob && window.__demoDayJob.phase() === 'collapse', null, { timeout: 15000 });
     await page.waitForTimeout(900);
     await snap(page, `${id}-collapse`);
+    await page.waitForSelector('.overlay .settled', { timeout: 40000 });
+    await page.waitForTimeout(600);
+    await snap(page, `${id}-settled`);
     await page.waitForSelector('.report', { timeout: 40000 });
     await page.waitForSelector('.run-again', { timeout: 40000 });
     const success = await page.evaluate(() => window.__demoDay.lastResult.report.success);

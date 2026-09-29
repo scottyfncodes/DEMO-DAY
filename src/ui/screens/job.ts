@@ -1,4 +1,5 @@
 import type { App, ScreenInstance } from '../../app';
+import { hashString } from '../../core/rng';
 import type { ChargeType, Direction, PlacedCharge } from '../../core/types';
 import { getBuilding } from '../../data/buildings';
 import { CHARGES, CHARGE_ORDER } from '../../data/charges';
@@ -136,6 +137,10 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     meterValue,
     h('small', { text: `Need ${Math.round(contract.requiredDestruction * 100)}%` }),
   );
+  // Landed debris breaks up into a rubble heap (cosmetic): id -> effects-clock start time.
+  const crumbleAt = new Map<string, number>();
+  const crumble = new Map<string, number>();
+  const CRUMBLE_TIME = 0.35;
   let meterShown = -1;
   let meterMet = false;
   let meterFrame = 0;
@@ -269,6 +274,7 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
       }
       updateStrain(sim.time);
       if (++meterFrame % 3 === 0 || sim.done) updateMeter();
+      updateCrumble();
       if (sim.done && phase === 'collapse') {
         phase = 'settled';
         strain.clear();
@@ -300,6 +306,7 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
       armedAt,
       burn,
       strain,
+      crumble,
     };
     renderer.draw(state, camera, effects);
     raf = requestAnimationFrame(frame);
@@ -347,6 +354,52 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
           app.play('settle');
           break;
       }
+    }
+  };
+
+  /**
+   * Pieces that have come to rest low on the ground (not on the standing
+   * structure, not on a neighbour's roof) crumble into the rubble heap a beat
+   * after they land. What is still a clean block is what is still standing.
+   */
+  const updateCrumble = (): void => {
+    if (!sim) return;
+    const now = effects.now;
+    for (const c of sim.chunks) {
+      if (c.state === 'falling') {
+        // Knocked loose again: bring it back as a block.
+        if (crumbleAt.has(c.id)) {
+          crumbleAt.delete(c.id);
+          crumble.delete(c.id);
+        }
+        continue;
+      }
+      if (c.state !== 'resting') continue;
+      const start = crumbleAt.get(c.id);
+      if (start === undefined) {
+        const onStructure = c.restingOn.some((r) => r !== 'ground' && sim?.chunkById.get(r)?.state === 'standing');
+        if (onStructure) continue;
+        // Debris on a neighbour's roof stays visible as blocks: that is the collateral.
+        const cs = Math.abs(Math.cos(c.angle));
+        const sn = Math.abs(Math.sin(c.angle));
+        const bottom = c.cy - (c.w * sn + c.h * cs) / 2;
+        const onNeighbor = bottom > 0.6 && (building.def.neighbors ?? []).some((n) => c.cx >= n.x && c.cx <= n.x + n.w && bottom >= n.h - 0.6);
+        if (onNeighbor) continue;
+        // Stagger by id so a heap breaks up piece by piece rather than all at once.
+        const jitter = (hashString(c.id) % 100) / 100;
+        crumbleAt.set(c.id, now + (c.isFragment ? 0.15 + jitter * 0.35 : 0.3 + jitter * 0.3));
+        continue;
+      }
+      if (now < start) continue;
+      const k = app.reducedMotion ? 1 : Math.min(1, (now - start) / CRUMBLE_TIME);
+      if (!crumble.has(c.id)) {
+        const cs = Math.abs(Math.cos(c.angle));
+        const sn = Math.abs(Math.sin(c.angle));
+        const halfW = (c.w * cs + c.h * sn) / 2;
+        effects.crumble(c.cx - halfW, c.cx + halfW, c.w * c.h, c.material, c.cx, c.cy);
+        if (!c.isFragment) app.play('crumble', Math.min(1, c.mass / 6 + 0.3));
+      }
+      crumble.set(c.id, k);
     }
   };
 
@@ -783,6 +836,7 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     armedAt = undefined;
     el.style.setProperty('--tension', '0');
     sim = new Simulation(building, plan.charges, { powerMultiplier: powerMul });
+    effects.initRubble(sim.groundMinX, (sim.groundMaxX - sim.groundMinX) / (sim.heightmap.length - 1 || 1), sim.heightmap.length);
     simAccumulator = 0;
     effects.now = 0;
     el.classList.add('live');
