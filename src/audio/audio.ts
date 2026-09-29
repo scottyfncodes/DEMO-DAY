@@ -60,8 +60,16 @@ export class AudioEngine {
     try {
       this.ctx = new Ctor();
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.7;
-      this.master.connect(this.ctx.destination);
+      this.master.gain.value = 0.95;
+      // A compressor lets the booms hit hard without clipping when a collapse stacks sounds up.
+      const comp = this.ctx.createDynamicsCompressor();
+      comp.threshold.value = -16;
+      comp.knee.value = 12;
+      comp.ratio.value = 5;
+      comp.attack.value = 0.004;
+      comp.release.value = 0.22;
+      this.master.connect(comp);
+      comp.connect(this.ctx.destination);
       const seconds = 2;
       const buffer = this.ctx.createBuffer(1, this.ctx.sampleRate * seconds, this.ctx.sampleRate);
       const data = buffer.getChannelData(0);

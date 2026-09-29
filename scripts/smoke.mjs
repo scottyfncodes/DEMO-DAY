@@ -80,6 +80,20 @@ async function main() {
   await page.waitForTimeout(1200);
   await snap(page, 'payout');
 
+  // Instant replay: the same collapse at half speed, then straight back to the payout.
+  const paidBefore = await page.evaluate(() => JSON.parse(localStorage.getItem('demo-day:save')).money);
+  await page.getByRole('button', { name: /Watch the Replay/i }).click();
+  await page.waitForSelector('.replay-tag');
+  await page.waitForFunction(() => window.__demoDayJob && window.__demoDayJob.phase() === 'collapse', null, { timeout: 15000 });
+  await page.waitForTimeout(250);
+  await snap(page, 'replay-hitstop');
+  await page.waitForTimeout(900);
+  await snap(page, 'replay-collapse');
+  await page.waitForSelector('.run-again', { timeout: 40000 });
+  const paidAfter = await page.evaluate(() => JSON.parse(localStorage.getItem('demo-day:save')).money);
+  if (paidAfter !== paidBefore) throw new Error('Replay paid out again');
+  console.log('  ✓ replay plays back without paying twice');
+
   // Run it again: the last plan comes back so the player can tweak it.
   await page.locator('.run-again').click();
   await page.waitForSelector('.job-sheet');

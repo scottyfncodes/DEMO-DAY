@@ -416,6 +416,27 @@ export class Effects {
     }
   }
 
+  /** A low, slow cloud that rolls over the rubble once everything has come down. */
+  settleHaze(minX: number, maxX: number): void {
+    const n = Math.round(16 * this.amount);
+    const span = Math.max(2, maxX - minX);
+    for (let i = 0; i < n; i++) {
+      this.puffs.push({
+        x: minX + span * ((i + this.rng.range(0, 1)) / n),
+        y: this.rng.range(0.3, 2.2),
+        vx: this.rng.range(-0.5, 0.5),
+        vy: this.rng.range(0.05, 0.25),
+        r: this.rng.range(0.8, 1.4),
+        growth: this.rng.range(0.2, 0.45),
+        life: 0,
+        maxLife: this.rng.range(4, 6),
+        color: i % 2 ? '#8f877c' : '#a79e90',
+        alpha: 0.2,
+        maxR: 3.2,
+      });
+    }
+  }
+
   /** Long, slow dust that hangs over the site once everything stops. */
   private settleDust(): void {
     // Leave what is already there to drift; add a thin lingering haze.

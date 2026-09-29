@@ -967,6 +967,100 @@ h3 {
   }
 }
 
+/* Live destruction meter. */
+.meter {
+  position: absolute;
+  top: calc(var(--safe-top) + 44px);
+  left: 50%;
+  translate: -50% 0;
+  z-index: 3;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: rgba(10, 12, 16, 0.6);
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 250ms ease;
+}
+.job.live .meter {
+  opacity: 1;
+}
+.meter .k,
+.meter small {
+  white-space: nowrap;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+}
+.meter b {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1;
+  min-width: 2.6ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+}
+.meter.bump b {
+  animation: meter-bump 220ms ease-out;
+}
+.meter.met {
+  box-shadow: inset 0 0 0 2px var(--ok);
+}
+.meter.met b {
+  color: var(--ok);
+}
+.meter.met small {
+  color: var(--ok);
+}
+.meter.full {
+  box-shadow: inset 0 0 0 2px #ffd46b, 0 0 24px rgba(255, 190, 60, 0.35);
+}
+.meter.full b {
+  color: #ffd46b;
+}
+@keyframes meter-bump {
+  40% {
+    transform: scale(1.25);
+  }
+}
+.replay-tag {
+  position: absolute;
+  top: calc(var(--safe-top) + 8px);
+  left: calc(var(--safe-left) + 14px);
+  z-index: 4;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #fff;
+  pointer-events: none;
+}
+.replay-tag::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: #ff3b30;
+  animation: rec 1s steps(2, jump-none) infinite;
+}
+@keyframes rec {
+  50% {
+    opacity: 0.2;
+  }
+}
+.report .btn.watch {
+  min-height: 48px;
+  font-size: 17px;
+}
+
 /* Failure chain: a quiet running record of what gave way, in order. */
 .chain {
   position: absolute;
