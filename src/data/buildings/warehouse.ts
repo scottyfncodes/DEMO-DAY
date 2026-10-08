@@ -74,6 +74,7 @@ function cladding(): MemberDef[] {
       w: 3.5,
       h: lvl.h - 0.1,
       mass: 1.2,
+      decor: ['ribbon'],
       label: `L${li + 1} Cladding West`,
       anchors: [`c${li + 1}_1`, `c${li + 1}_2`],
       note: 'Profiled steel cladding hung from the columns. Not structural.',
@@ -87,6 +88,7 @@ function cladding(): MemberDef[] {
       w: 3.5,
       h: lvl.h - 0.1,
       mass: 1.2,
+      decor: li === 0 ? ['ribbon', 'door'] : ['ribbon'],
       label: `L${li + 1} Cladding East`,
       anchors: [`c${li + 1}_3`, `c${li + 1}_4`],
       note: 'Profiled steel cladding hung from the columns. Not structural.',
@@ -104,7 +106,7 @@ export const WAREHOUSE: BuildingDef = {
   ground: { x: -20, w: 48 },
   neighbors: [
     { id: 'river', label: 'River', x: -13, w: 11, h: 0.2, style: 'water' },
-    { id: 'substation', label: 'Substation', x: 19.2, w: 3.6, h: 3.2, style: 'shed' },
+    { id: 'substation', label: 'Substation', x: 19.2, w: 3.6, h: 3.2, style: 'substation' },
   ],
   members: [
     ...columns(),
@@ -118,6 +120,7 @@ export const WAREHOUSE: BuildingDef = {
       h: 11.25,
       hp: 1000,
       label: 'Stair Core',
+      decor: ['vent'],
       note: 'Solid reinforced-concrete stair core. Carries bays B and C on every floor. One shaped charge will not cut it; two will.',
     },
     ...slabs(),

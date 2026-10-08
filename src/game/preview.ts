@@ -32,10 +32,11 @@ export function previewCharge(
   memberId: string,
   powerMul = 1,
   direction?: Direction,
+  at?: number,
 ): Preview {
   const def = CHARGES[type];
   const target = building.members.get(memberId) as Member;
-  const { x: px, y: py } = chargePoint(target);
+  const { x: px, y: py } = chargePoint(target, at);
 
   // Damage already planned per member.
   const existing = new Map<string, number>();
@@ -43,7 +44,7 @@ export function previewCharge(
     const cd = CHARGES[c.type];
     const t = building.members.get(c.memberId);
     if (!t) continue;
-    const { x: cx, y: cy } = chargePoint(t);
+    const { x: cx, y: cy } = chargePoint(t, c.at);
     for (const m of building.members.values()) {
       const mul = cd.multipliers[m.kind] ?? 1;
       let dmg = 0;

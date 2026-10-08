@@ -126,13 +126,51 @@ export function memberCenter(m: MemberDef): { x: number; y: number } {
   return { x: m.x + m.w / 2, y: m.y + m.h / 2 };
 }
 
+/** Columns, cores and walls carry charges along their height; beams, slabs and roofs along their span. */
+export function isVerticalMember(m: Pick<MemberDef, 'kind'>): boolean {
+  return m.kind === 'column' || m.kind === 'core' || m.kind === 'wall';
+}
+
+/** Default charge position: low on vertical members (you cut a column near its base), centred on horizontal ones. */
+export function defaultChargeAt(m: Pick<MemberDef, 'kind'>): number {
+  return isVerticalMember(m) ? 0.3 : 0.5;
+}
+
+/** Length of the axis a charge slides along, in metres. */
+export function chargeAxisLength(m: Pick<MemberDef, 'kind' | 'w' | 'h'>): number {
+  return isVerticalMember(m) ? m.h : m.w;
+}
+
+/** Keeps a charge at least 12 cm in from either end of the member. */
+export function clampChargeAt(m: Pick<MemberDef, 'kind' | 'w' | 'h'>, at: number): number {
+  const margin = Math.min(0.3, Math.max(0.04, 0.12 / Math.max(0.01, chargeAxisLength(m))));
+  if (!Number.isFinite(at)) return defaultChargeAt(m);
+  return Math.min(1 - margin, Math.max(margin, at));
+}
+
+/** Charge placement snaps to this grid along the member, in metres. */
+export const CHARGE_SNAP = 0.1;
+
 /**
- * Where a charge sits on a member: low on vertical members (you cut a column
- * near its base), centred on horizontal ones.
+ * Projects a world point onto the member's charge axis and snaps it to the
+ * placement grid, measured from the member's bottom (vertical) or left end.
  */
-export function chargePoint(m: Pick<MemberDef, 'kind' | 'x' | 'y' | 'w' | 'h'>): { x: number; y: number } {
-  const vertical = m.kind === 'column' || m.kind === 'core' || m.kind === 'wall';
-  return { x: m.x + m.w / 2, y: vertical ? m.y + m.h * 0.3 : m.y + m.h / 2 };
+export function chargeAtFromPoint(m: Pick<MemberDef, 'kind' | 'x' | 'y' | 'w' | 'h'>, px: number, py: number): number {
+  const len = chargeAxisLength(m);
+  const along = isVerticalMember(m) ? py - m.y : px - m.x;
+  const snapped = Math.round(along / CHARGE_SNAP) * CHARGE_SNAP;
+  return clampChargeAt(m, snapped / Math.max(0.01, len));
+}
+
+/**
+ * Where a charge sits on a member. `at` slides it along the member's long
+ * axis; without it the charge sits low on vertical members and centred on
+ * horizontal ones.
+ */
+export function chargePoint(m: Pick<MemberDef, 'kind' | 'x' | 'y' | 'w' | 'h'>, at?: number): { x: number; y: number } {
+  const vertical = isVerticalMember(m);
+  const t = at === undefined ? defaultChargeAt(m) : clampChargeAt(m, at);
+  return vertical ? { x: m.x + m.w / 2, y: m.y + m.h * t } : { x: m.x + m.w * t, y: m.y + m.h / 2 };
 }
 
 /** Distance from a point to the member's rectangle (0 when inside). */

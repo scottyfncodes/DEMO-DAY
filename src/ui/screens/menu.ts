@@ -11,7 +11,9 @@ import { Camera } from '../../render/camera';
 import { Effects } from '../../render/effects';
 import { Renderer, type SceneState } from '../../render/renderer';
 import { Simulation, type SimEvent } from '../../sim/simulation';
+import { getSite } from '../../data/sites';
 import { buildBuilding } from '../../structure/building';
+import { generateWorld } from '../../world/world';
 import { h } from '../dom';
 
 type HeroPhase = 'armed' | 'collapse' | 'settled' | 'reset';
@@ -44,6 +46,7 @@ function heroScene(app: App, contract: ContractDef): { el: HTMLElement; stop: ()
   const wrap = h('div', { class: 'menu-hero', 'aria-hidden': 'true' }, canvas);
   const building = buildBuilding(getBuilding(contract.buildingId));
   const charges = showcasePlan(contract.buildingId);
+  const world = generateWorld(building.def, getSite(contract.buildingId));
   const renderer = new Renderer(canvas);
   const camera = new Camera();
   const effects = new Effects();
@@ -73,9 +76,10 @@ function heroScene(app: App, contract: ContractDef): { el: HTMLElement; stop: ()
     const b = building.bounds;
     const w = camera.viewportWidth;
     const hgt = camera.viewportHeight;
-    const byWidth = w / (b.maxX - b.minX + 2.6);
-    const byHeight = (hgt * 0.62) / (b.maxY - b.minY + 0.6);
-    camera.scale = Math.min(byWidth, byHeight, 90);
+    // The building is the subject, but leave room for the street and the lots either side.
+    const byWidth = w / (b.maxX - b.minX + 9);
+    const byHeight = (hgt * 0.55) / (b.maxY - b.minY + 0.6);
+    camera.scale = Math.min(byWidth, byHeight, 60);
     camera.x = (b.minX + b.maxX) / 2;
     // Ground line at 82% of the hero's height.
     const centreY = camera.insetTop + (hgt - camera.insetTop - camera.insetBottom) / 2;
@@ -175,6 +179,7 @@ function heroScene(app: App, contract: ContractDef): { el: HTMLElement; stop: ()
       burn,
       strain,
       crumble,
+      world,
     };
     renderer.draw(state, camera, effects);
   };

@@ -12,12 +12,14 @@ import { previewCharge } from '../../game/preview';
 import { applyRun } from '../../game/progression';
 import { scoreRun } from '../../game/scoring';
 import { CHAIN_WINDOW, STRAIN_LEAD, isNearPerfect, precomputeCollapse, type CollapseTimeline, type Failure } from '../../game/timeline';
-import { Camera, type Bounds } from '../../render/camera';
+import { getSite } from '../../data/sites';
+import { Camera, zoomTier, type Bounds } from '../../render/camera';
 import { paintChargeIcon } from '../../render/charges';
 import { Effects } from '../../render/effects';
 import { ARM_STAGGER, Renderer, type RemovedCharge, type SceneState } from '../../render/renderer';
 import { Simulation, type SimEvent } from '../../sim/simulation';
-import { buildBuilding, chargePoint, type Member } from '../../structure/building';
+import { CHARGE_SNAP, buildBuilding, chargeAtFromPoint, chargeAxisLength, chargePoint, clampChargeAt, defaultChargeAt, isVerticalMember, type Member } from '../../structure/building';
+import { generateWorld } from '../../world/world';
 import { computeLoads } from '../../structure/support';
 import { h, wait } from '../dom';
 import { attachInput } from '../input';
@@ -50,6 +52,7 @@ const KIND_LABEL: Record<Member['kind'], string> = {
 export function jobScreen(app: App, params: Record<string, string>): ScreenInstance {
   const contract = getContract(params.id ?? 'job01');
   const building = buildBuilding(getBuilding(contract.buildingId));
+  const world = generateWorld(building.def, getSite(contract.buildingId));
   const loadout = effectiveLoadout(contract.loadout, app.save.equipment);
   const plan = new Plan(building, loadout);
   const powerMul = powerMultiplier(app.save.equipment);
@@ -57,6 +60,8 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
 
   let phase: Phase = 'plan';
   let selectedId: string | undefined;
+  /** Where along the selected member the next charge goes (0..1, see PlacedCharge.at). */
+  let aimAt: number | undefined;
   let chargeType: ChargeType = CHARGE_ORDER.find((t) => (loadout[t] ?? 0) > 0) ?? 'small';
   let direction: Direction = 'left';
   let scannerOn = scannerOwned;
@@ -117,10 +122,11 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
   const backButton = h('button', { class: 'btn btn-icon', 'aria-label': 'Back to contract', onClick: () => { app.play('tap'); app.go('contract', { id: contract.id }); } }, '‹');
   const top = h('div', { class: 'job-top' }, backButton, title);
 
-  const fitButton = h('button', { class: 'btn btn-icon', 'aria-label': 'Fit building in view', onClick: () => { app.play('tap'); fitBuilding(true); } }, '⤢');
+  const fitButton = h('button', { class: 'btn btn-icon', 'aria-label': 'Frame the job site', onClick: () => { app.play('tap'); fitBuilding(true); } }, '⤢');
+  const overviewButton = h('button', { class: 'btn btn-icon', 'aria-label': 'Toggle district overview', onClick: () => { app.play('tap'); toggleOverview(); } }, '◎');
   const scannerButton = h('button', { class: `btn btn-icon${scannerOn ? ' btn-primary' : ''}`, 'aria-label': 'Toggle structural scanner', onClick: () => { scannerOn = !scannerOn; scannerButton.classList.toggle('btn-primary', scannerOn); app.play('inspect'); } }, '⌗');
   const resetButton = h('button', { class: 'btn btn-icon', 'aria-label': 'Clear every charge', onClick: () => clearPlan() }, '↺');
-  const fab = h('div', { class: 'job-fab' }, fitButton, scannerOwned ? scannerButton : null, resetButton);
+  const fab = h('div', { class: 'job-fab' }, fitButton, overviewButton, scannerOwned ? scannerButton : null, resetButton);
 
   const info = h('div', { class: 'job-info' });
   const tray = h('div', { class: 'tray', role: 'group', 'aria-label': 'Demolition loadout' });
@@ -160,6 +166,9 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     const hgt = stage.clientHeight || window.innerHeight;
     renderer.resize(w, hgt);
     camera.setViewport(w, hgt);
+    // Zoom out until the whole district fits across the screen; in until a bolt head is a few pixels.
+    camera.minScale = Math.max(0.8, w / (world.maxX - world.minX));
+    camera.maxScale = 360;
     const showtime = phase !== 'plan';
     camera.insetTop = showtime ? 44 : 62;
     camera.insetBottom = showtime ? 44 : Math.min(hgt * 0.5, sheet.offsetHeight || 260);
@@ -219,8 +228,9 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     const b = showtimeBounds();
     const t = camera.fitTarget(b, 1.2);
     const halfH = Math.max(1, camera.viewportHeight - camera.insetTop - camera.insetBottom) / 2 / t.scale;
-    // Centre high enough that the ground sits about three quarters down, never losing it off-screen.
-    t.y = Math.max(t.y, Math.min(halfH * 0.5, halfH - 1.5));
+    // Sit the ground low, with just the street in front below it, and give the sky to the collapse.
+    const apron = (Math.max(84, 6 * t.scale) * 0.4 + 40) / t.scale;
+    t.y = Math.max(t.y, halfH - apron);
     return t;
   };
 
@@ -228,19 +238,98 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
   const ensureVisible = (id: string): void => {
     const m = building.members.get(id);
     if (!m) return;
-    const pt = chargePoint(m);
-    const p = camera.worldToScreen(pt.x, pt.y);
+    // Too small to place on precisely? Move in until the member is a comfortable target.
+    const readable = Math.min(46, Math.max(12 / Math.max(0.05, Math.min(m.w, m.h)), 70 / Math.max(0.5, chargeAxisLength(m))));
+    const scale = Math.max(camera.scale, Math.min(readable, camera.maxScale));
+    const pt = chargePoint(m, aimAt);
     const visibleTop = camera.insetTop + 30;
     const visibleBottom = camera.viewportHeight - (sheet.offsetHeight || camera.insetBottom) - 30;
-    if (p.y >= visibleTop && p.y <= visibleBottom) return;
-    const target = (visibleTop + Math.max(visibleTop, visibleBottom)) / 2;
-    camera.animateTo({ x: camera.x, y: camera.y - (p.y - target) / camera.scale, scale: camera.scale }, 300, performance.now());
+    const left = 24;
+    const right = camera.viewportWidth - 24;
+    if (scale === camera.scale) {
+      const p = camera.worldToScreen(pt.x, pt.y);
+      const okY = p.y >= visibleTop && p.y <= visibleBottom;
+      const okX = p.x >= left && p.x <= right;
+      if (okX && okY) return;
+      const targetY = (visibleTop + Math.max(visibleTop, visibleBottom)) / 2;
+      camera.animateTo({ x: okX ? camera.x : pt.x, y: okY ? camera.y : camera.y - (p.y - targetY) / camera.scale, scale: camera.scale }, 300, performance.now());
+      return;
+    }
+    // Zoom so the point lands in the middle of the visible area above the sheet.
+    const mid = (visibleTop + Math.max(visibleTop, visibleBottom)) / 2;
+    const centreY = camera.insetTop + (camera.viewportHeight - camera.insetTop - camera.insetBottom) / 2;
+    camera.animateTo({ x: pt.x, y: pt.y + (mid - centreY) / scale, scale }, 380, performance.now());
   };
 
+  /**
+   * The working view: the building with its lot around it (setbacks, the
+   * neighbours, the street), close enough to place charges precisely.
+   */
+  const siteBounds = (): Bounds => {
+    const b = inspectBounds();
+    const width = b.maxX - b.minX;
+    const pad = Math.min(6, Math.max(2, width * 0.18));
+    return { minX: b.minX - pad, maxX: b.maxX + pad, minY: Math.min(b.minY, -2.2), maxY: b.maxY + 0.5 };
+  };
+
+  /**
+   * Frames a span of the street with the ground line low in the visible area,
+   * leaving just enough below it for the street in front.
+   */
+  const streetTarget = (minX: number, maxX: number, topY: number): { x: number; y: number; scale: number } => {
+    const usable = Math.max(1, camera.viewportHeight - camera.insetTop - camera.insetBottom);
+    const byWidth = camera.viewportWidth / Math.max(1, maxX - minX);
+    // The street in front takes 0.4 of the horizon lift below the ground line (see render/world.ts).
+    const apron = (scale: number): number => Math.max(84, 6 * scale) * 0.4 + 14;
+    // On a wide screen, never so close that the lot loses its neighbours: show at least ~40 m of street.
+    let scale = Math.min(byWidth, Math.max(28, camera.viewportWidth / 42));
+    // Shrink until the top of the subject clears the header.
+    for (let i = 0; i < 8; i++) {
+      if (topY * scale + apron(scale) + 40 <= usable) break;
+      scale *= 0.88;
+    }
+    scale = Math.max(camera.minScale, Math.min(camera.maxScale, scale));
+    // Ground sits apron pixels above the bottom of the usable area.
+    const y = usable / 2 / scale - apron(scale) / scale;
+    return { x: (minX + maxX) / 2, y, scale };
+  };
+
+  /** The district: a few blocks either side, the job a patch of amber in the middle. */
+  const districtTarget = (): { x: number; y: number; scale: number } => {
+    const span = world.maxX - world.minX;
+    const mid = (world.siteMinX + world.siteMaxX) / 2;
+    const usable = Math.max(1, camera.viewportHeight - camera.insetTop - camera.insetBottom);
+    // Landscape screens have the room to come in closer and still show several blocks.
+    const half = camera.viewportWidth > usable * 1.3 ? Math.max(span * 0.12, camera.viewportWidth / 2 / Math.min(10, (usable * 0.4) / 30)) : span * 0.27;
+    return streetTarget(mid - Math.min(half, span * 0.5), mid + Math.min(half, span * 0.5), 30);
+  };
+
+  let overview = false;
   const fitBuilding = (animate: boolean): void => {
     resize();
-    if (animate) camera.animateFit(inspectBounds(), 1.4, 500, performance.now());
-    else camera.fit(inspectBounds(), 1.4);
+    overview = false;
+    overviewButton.classList.remove('btn-primary');
+    camera.stop();
+    const b = siteBounds();
+    const t = streetTarget(b.minX, b.maxX, b.maxY + 0.8);
+    if (animate) camera.animateTo(t, 600, performance.now());
+    else {
+      camera.x = t.x;
+      camera.y = t.y;
+      camera.scale = t.scale;
+    }
+  };
+
+  const toggleOverview = (): void => {
+    resize();
+    camera.stop();
+    if (overview) {
+      fitBuilding(true);
+      return;
+    }
+    overview = true;
+    overviewButton.classList.add('btn-primary');
+    camera.animateTo(districtTarget(), 900, performance.now());
   };
 
   const loadRatios = (): Map<string, number> => {
@@ -307,6 +396,9 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
       burn,
       strain,
       crumble,
+      world,
+      aim: phase === 'plan' && selectedId && aimAt !== undefined ? { memberId: selectedId, at: aimAt, type: chargeType, direction } : undefined,
+      hud: phase === 'plan',
     };
     renderer.draw(state, camera, effects);
     raf = requestAnimationFrame(frame);
@@ -615,7 +707,7 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
         info.append(details);
       }
       if (!m.protect) {
-        const preview = previewCharge(building, plan.charges, chargeType, m.id, powerMul, direction);
+        const preview = previewCharge(building, plan.charges, chargeType, m.id, powerMul, direction, aimAt);
         const cls = preview.warnings.length ? 'effect warn' : preview.target.destroyed ? 'effect good' : 'effect';
         const effect = h('div', { class: cls }, h('b', { text: `${def.short}: ` }), preview.summary);
         const splashDamaged = preview.splash.filter((s) => !s.destroyed && s.fraction >= 0.2);
@@ -640,6 +732,26 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
         toggle.classList.add('wide');
         actions.append(toggle);
       }
+      // Strap point: nudge it along the member in 10 cm steps (or tap the member where you want it).
+      const vertical = isVerticalMember(m);
+      const len = chargeAxisLength(m);
+      const at = aimAt ?? defaultChargeAt(m);
+      const nudge = (dir: number): void => {
+        aimAt = clampChargeAt(m, (Math.round((at * len) / CHARGE_SNAP) + dir) * CHARGE_SNAP / len);
+        app.play('tap');
+        renderInfo();
+      };
+      actions.append(
+        h(
+          'div',
+          { class: 'aim wide', role: 'group', 'aria-label': 'Charge position' },
+          h('span', { class: 'k', text: 'Strap at' }),
+          h('button', { class: 'btn', 'aria-label': vertical ? 'Move charge down' : 'Move charge left', onClick: () => nudge(-1) }, vertical ? '▼' : '◀'),
+          h('b', { text: `${(at * len).toFixed(1)} m ${vertical ? 'up' : 'in'}` }),
+          h('button', { class: 'btn', 'aria-label': vertical ? 'Move charge up' : 'Move charge right', onClick: () => nudge(1) }, vertical ? '▲' : '▶'),
+          h('small', { text: `of ${len.toFixed(1)} m` }),
+        ),
+      );
       const canPlace = plan.remaining(chargeType) > 0;
       actions.append(
         h(
@@ -647,7 +759,7 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
           {
             class: 'btn btn-primary',
             disabled: !canPlace,
-            onClick: () => placeCharge(chargeType, m.id),
+            onClick: () => placeCharge(chargeType, m.id, aimAt),
           },
           canPlace ? `Place ${def.short}` : `No ${def.short} left`,
         ),
@@ -676,8 +788,8 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     resize();
   };
 
-  const placeCharge = (type: ChargeType, memberId: string): void => {
-    const result = plan.place(type, memberId, direction);
+  const placeCharge = (type: ChargeType, memberId: string, at?: number): void => {
+    const result = plan.place(type, memberId, direction, at);
     if (!result.ok) {
       app.play('error');
       app.toast(result.reason, true, el);
@@ -696,14 +808,26 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
   const ghost = (c: PlacedCharge): void => {
     const m = building.members.get(c.memberId);
     if (!m) return;
-    const pt = chargePoint(m);
+    const pt = chargePoint(m, c.at);
     removed.push({ type: c.type, direction: c.direction, x: pt.x, y: pt.y, at: clock() });
     while (removed.length > 8) removed.shift();
   };
 
   const removeCharge = (memberId: string): void => {
     const on = plan.chargesOn(memberId);
-    const last = on[on.length - 1];
+    const m = building.members.get(memberId);
+    // Take off the charge nearest the aim point (the last one placed when they share a spot).
+    let last = on[on.length - 1];
+    if (m && aimAt !== undefined) {
+      let best = Infinity;
+      for (const c of on) {
+        const d = Math.abs((c.at ?? defaultChargeAt(m)) - aimAt);
+        if (d <= best + 1e-9) {
+          best = d;
+          last = c;
+        }
+      }
+    }
     if (!last || !plan.remove(last.id)) return;
     ghost(last);
     placedAt.delete(last.id);
@@ -728,20 +852,98 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
   const detachInput = attachInput(canvas, {
     onTap: (x, y) => {
       if (phase !== 'plan') return;
-      const id = renderer.hitTest(building, camera, x, y);
-      if (id && id !== selectedId) {
-        selectedId = id;
-        app.play('inspect');
-      } else if (!id) {
+      camera.stop();
+      // The minimap: travel along the district.
+      const mm = renderer.minimap;
+      if (mm && x >= mm.x && x <= mm.x + mm.w && y >= mm.y && y <= mm.y + mm.h) {
+        const wx = mm.minX + ((x - mm.x - 6) / (mm.w - 12)) * (mm.maxX - mm.minX);
+        const near = wx > world.siteMinX - 10 && wx < world.siteMaxX + 10;
+        app.play('tap');
+        if (near && overview) fitBuilding(true);
+        else camera.animateTo({ x: wx, y: camera.y, scale: camera.scale }, 500, performance.now());
+        return;
+      }
+      // Zoomed out over the district a tap travels: onto the job if it lands near it, otherwise closer in.
+      const tier = zoomTier(camera.drawScale);
+      const hit = tier === 'District' ? undefined : renderer.hitTest(building, camera, x, y);
+      if (!hit && (tier === 'District' || tier === 'Block')) {
+        const w = camera.screenToWorld(x, y);
+        const nearSite = w.x > world.siteMinX - 6 && w.x < world.siteMaxX + 6;
+        if (tier === 'District' || !nearSite) {
+          app.play('tap');
+          if (nearSite) fitBuilding(true);
+          else camera.animateTo({ x: w.x, y: camera.y, scale: Math.min(camera.maxScale, Math.max(camera.scale * 2.6, 9)) }, 600, performance.now());
+          return;
+        }
+      }
+      const id = hit;
+      if (id) {
+        const m = building.members.get(id) as Member;
+        const w = camera.screenToWorld(x, y);
+        const tapped = m.protect ? undefined : chargeAtFromPoint(m, w.x, w.y);
+        // The charge goes where the finger went, snapped to 10 cm along the member.
+        aimAt = tapped;
+        if (id !== selectedId) {
+          selectedId = id;
+          app.play('inspect');
+        } else {
+          app.play('tap');
+        }
+      } else {
         selectedId = undefined;
+        aimAt = undefined;
         app.play('tap');
       }
       renderInfo();
       if (selectedId) ensureVisible(selectedId);
     },
     onPan: (dx, dy) => camera.panBy(dx, dy),
+    onPanEnd: (vx, vy) => {
+      if (!app.reducedMotion) camera.fling(vx, vy, performance.now());
+    },
     onZoom: (x, y, f) => camera.zoomAt(x, y, f),
   });
+
+  // Desktop: arrows pan, +/- zoom about the centre, 0 frames the site, O the district.
+  const onKey = (ev: KeyboardEvent): void => {
+    if (ev.target instanceof HTMLInputElement) return;
+    const step = 60;
+    const cx = camera.viewportWidth / 2;
+    const cy = camera.insetTop + (camera.viewportHeight - camera.insetTop - camera.insetBottom) / 2;
+    switch (ev.key) {
+      case 'ArrowLeft':
+        camera.panBy(step, 0);
+        break;
+      case 'ArrowRight':
+        camera.panBy(-step, 0);
+        break;
+      case 'ArrowUp':
+        camera.panBy(0, step);
+        break;
+      case 'ArrowDown':
+        camera.panBy(0, -step);
+        break;
+      case '+':
+      case '=':
+        camera.zoomAt(cx, cy, 1.25);
+        break;
+      case '-':
+      case '_':
+        camera.zoomAt(cx, cy, 0.8);
+        break;
+      case '0':
+        fitBuilding(true);
+        break;
+      case 'o':
+      case 'O':
+        toggleOverview();
+        break;
+      default:
+        return;
+    }
+    ev.preventDefault();
+  };
+  window.addEventListener('keydown', onKey);
 
   // ---------------------------------------------------------- demo day
   const showOverlay = (...children: HTMLElement[]): void => {
@@ -754,6 +956,9 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     phase = 'armed';
     plan.lock();
     selectedId = undefined;
+    aimAt = undefined;
+    overview = false;
+    camera.stop();
     app.lastPlan = { contractId: contract.id, charges: plan.charges.map((c) => ({ ...c })) };
     // Same plan, same seed, same outcome: know the collapse before it happens.
     timeline = precomputeCollapse(building, plan.charges, { powerMultiplier: powerMul }).timeline;
@@ -921,13 +1126,13 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     window.setTimeout(() => app.go('report'), 0);
   }
   if (watching && app.lastPlan) {
-    for (const c of app.lastPlan.charges) plan.place(c.type, c.memberId, c.direction);
+    for (const c of app.lastPlan.charges) plan.place(c.type, c.memberId, c.direction, c.at);
   }
   if (params.replay === '1' && app.lastPlan?.contractId === contract.id) {
     // Run it again: start from the last plan so one change is one tap away.
     const t0 = clock() + 0.35;
     app.lastPlan.charges.forEach((c, i) => {
-      const r = plan.place(c.type, c.memberId, c.direction);
+      const r = plan.place(c.type, c.memberId, c.direction, c.at);
       if (r.ok) placedAt.set(r.charge.id, t0 + i * 0.07);
     });
     if (plan.totalUsed() > 0) {
@@ -942,23 +1147,37 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
     resize();
   };
   window.addEventListener('resize', onResize);
+  camera.limits = { minX: world.minX, maxX: world.maxX, minY: -6, maxY: building.bounds.maxY + 25 };
   requestAnimationFrame(() => {
     fitBuilding(false);
+    // Establishing shot: open on the district, then fly down to the lot.
+    if (!watching && !app.reducedMotion && params.replay !== '1') {
+      const site = { x: camera.x, y: camera.y, scale: camera.scale };
+      const d = districtTarget();
+      camera.x = d.x;
+      camera.y = d.y;
+      camera.scale = d.scale;
+      window.setTimeout(() => {
+        if (!disposed && phase === 'plan' && !camera.animating) camera.animateTo(site, 1500, performance.now());
+      }, 450);
+    }
     raf = requestAnimationFrame(frame);
     if (watching) void startWatch();
   });
 
   const debugHooks = {
-    place: (type: ChargeType, memberId: string, dir?: Direction): boolean => {
+    place: (type: ChargeType, memberId: string, dir?: Direction, at?: number): boolean => {
       if (dir) direction = dir;
-      const r = plan.place(type, memberId, dir);
+      const r = plan.place(type, memberId, dir, at);
       if (r.ok) placedAt.set(r.charge.id, clock());
       renderTray();
       renderInfo();
       return r.ok;
     },
-    select: (memberId: string): void => {
+    select: (memberId: string, at?: number): void => {
       selectedId = memberId;
+      const m = building.members.get(memberId);
+      aimAt = m && !m.protect ? (at === undefined ? defaultChargeAt(m) : clampChargeAt(m, at)) : undefined;
       renderInfo();
       ensureVisible(memberId);
     },
@@ -967,6 +1186,9 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
       countdownSkip = true;
     },
     phase: (): Phase => phase,
+    overview: (): void => toggleOverview(),
+    zoom: (factor: number): void => camera.zoomAt(camera.viewportWidth / 2, camera.viewportHeight / 3, factor),
+    camera,
     plan,
   };
   (window as unknown as { __demoDayJob?: typeof debugHooks }).__demoDayJob = debugHooks;
@@ -978,6 +1200,7 @@ export function jobScreen(app: App, params: Record<string, string>): ScreenInsta
       cancelAnimationFrame(raf);
       detachInput();
       window.removeEventListener('resize', onResize);
+      window.removeEventListener('keydown', onKey);
       delete (window as unknown as { __demoDayJob?: unknown }).__demoDayJob;
     },
   };

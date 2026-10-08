@@ -3,6 +3,8 @@ export interface InputHandlers {
   onPan(dx: number, dy: number): void;
   onZoom(x: number, y: number, factor: number): void;
   onGestureStart?(): void;
+  /** A one-finger drag ended; velocity in CSS pixels per millisecond for a glide. */
+  onPanEnd?(vx: number, vy: number): void;
 }
 
 interface PointerState {
@@ -24,6 +26,8 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
   let lastPinchDist = 0;
   let lastMidX = 0;
   let lastMidY = 0;
+  /** Recent drag samples for the release velocity. */
+  let samples: Array<{ x: number; y: number; t: number }> = [];
 
   const local = (ev: PointerEvent): { x: number; y: number } => {
     const r = el.getBoundingClientRect();
@@ -35,7 +39,10 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
     el.setPointerCapture?.(ev.pointerId);
     const p = local(ev);
     pointers.set(ev.pointerId, { id: ev.pointerId, x: p.x, y: p.y, startX: p.x, startY: p.y, startTime: performance.now() });
-    if (pointers.size === 1) moved = false;
+    if (pointers.size === 1) {
+      moved = false;
+      samples = [{ x: p.x, y: p.y, t: performance.now() }];
+    }
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()] as [PointerState, PointerState];
       lastPinchDist = Math.hypot(a.x - b.x, a.y - b.y);
@@ -58,6 +65,9 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
     if (pointers.size === 1) {
       if (!moved && Math.hypot(p.x - state.startX, p.y - state.startY) > 8) moved = true;
       if (moved) handlers.onPan(dx, dy);
+      const now = performance.now();
+      samples.push({ x: p.x, y: p.y, t: now });
+      while (samples.length > 2 && now - (samples[0] as { t: number }).t > 90) samples.shift();
     } else if (pointers.size === 2) {
       const [a, b] = [...pointers.values()] as [PointerState, PointerState];
       const dist = Math.hypot(a.x - b.x, a.y - b.y);
@@ -79,7 +89,13 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
     const elapsed = performance.now() - state.startTime;
     if (pointers.size === 0 && !moved && elapsed < 600) {
       handlers.onTap(state.x, state.y);
+    } else if (pointers.size === 0 && moved && samples.length >= 2) {
+      const a = samples[0] as { x: number; y: number; t: number };
+      const b = samples[samples.length - 1] as { x: number; y: number; t: number };
+      const dt = Math.max(1, b.t - a.t);
+      if (performance.now() - b.t < 80) handlers.onPanEnd?.((b.x - a.x) / dt, (b.y - a.y) / dt);
     }
+    if (pointers.size > 0) samples = [];
     if (pointers.size < 2) lastPinchDist = 0;
     ev.preventDefault();
   };

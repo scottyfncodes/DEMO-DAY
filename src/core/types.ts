@@ -51,7 +51,25 @@ export interface MemberDef {
    * not touch its bottom edge (slabs tied into the side of a core).
    */
   supportedBy?: string[];
+  /**
+   * Architectural details drawn on the member (cosmetic only). They ride
+   * with the member when it falls.
+   */
+  decor?: DecorKind[];
 }
+
+/** Cosmetic details a member can carry. */
+export type DecorKind =
+  | 'window'
+  | 'door'
+  | 'vent'
+  | 'ladder'
+  | 'lettering'
+  | 'truss'
+  | 'ribbon'
+  | 'cap'
+  | 'louvre'
+  | 'garageDoor';
 
 export interface NeighborDef {
   id: string;
@@ -60,7 +78,7 @@ export interface NeighborDef {
   w: number;
   h: number;
   /** Visual style hint. */
-  style?: 'house' | 'road' | 'water' | 'fence' | 'tank' | 'shed';
+  style?: 'house' | 'road' | 'water' | 'fence' | 'tank' | 'shed' | 'greenhouse' | 'rail' | 'substation';
 }
 
 export interface BuildingDef {
@@ -139,6 +157,12 @@ export interface PlacedCharge {
   type: ChargeType;
   memberId: string;
   direction?: Direction;
+  /**
+   * Where along the member the charge is strapped, 0..1 along its long axis
+   * (bottom to top on vertical members, left to right on horizontal ones).
+   * Omitted means the default point: low on verticals, centred on horizontals.
+   */
+  at?: number;
 }
 
 export interface MemberStats {
