@@ -1753,3 +1753,43 @@ h3 {
     border-radius: 22px 22px 0 0;
   }
 }
+
+/* Charge position stepper: where along the member the strap goes. */
+.actions .aim {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 4px 0 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.actions .aim .k {
+  font-family: var(--font-display, inherit);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-right: auto;
+}
+.actions .aim b {
+  min-width: 74px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 16px;
+}
+.actions .aim small {
+  font-size: 12px;
+  opacity: 0.5;
+  min-width: 52px;
+  text-align: right;
+  padding-right: 6px;
+}
+.actions .aim .btn {
+  min-height: 32px;
+  min-width: 40px;
+  padding: 0;
+  font-size: 13px;
+  border-radius: 10px;
+}

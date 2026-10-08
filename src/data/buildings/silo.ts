@@ -55,9 +55,9 @@ export const SILO: BuildingDef = {
       lean: 1,
       note: 'Massive ring beam. Survey shows the whole silo leans 2° toward the highway.',
     },
-    { id: 'seg_1', kind: 'core', material: 'concrete', x: 0, y: 4.5, w: 2.5, h: 4.5, label: 'Lower Bin', mass: 8, lean: 1, note: 'Hollow concrete bin wall. Leans toward the highway.' },
-    { id: 'seg_2', kind: 'core', material: 'concrete', x: 0, y: 9, w: 2.5, h: 4.5, label: 'Middle Bin', mass: 8, lean: 1, note: 'Hollow concrete bin wall.' },
-    { id: 'seg_3', kind: 'core', material: 'concrete', x: 0, y: 13.5, w: 2.5, h: 4, label: 'Upper Bin', mass: 7, lean: 1, note: 'Hollow concrete bin wall.' },
-    { id: 'tank', kind: 'core', material: 'steel', x: -0.5, y: 17.5, w: 3.5, h: 2.5, label: 'Head House', mass: 8, lean: 1, note: 'Steel head house on top. Heavy and top-heavy.' },
+    { id: 'seg_1', kind: 'core', material: 'concrete', x: 0, y: 4.5, w: 2.5, h: 4.5, label: 'Lower Bin', mass: 8, lean: 1, decor: ['ladder', 'door'], note: 'Hollow concrete bin wall. Leans toward the highway.' },
+    { id: 'seg_2', kind: 'core', material: 'concrete', x: 0, y: 9, w: 2.5, h: 4.5, label: 'Middle Bin', mass: 8, lean: 1, decor: ['lettering', 'ladder'], note: 'Hollow concrete bin wall.' },
+    { id: 'seg_3', kind: 'core', material: 'concrete', x: 0, y: 13.5, w: 2.5, h: 4, label: 'Upper Bin', mass: 7, lean: 1, decor: ['ladder'], note: 'Hollow concrete bin wall.' },
+    { id: 'tank', kind: 'core', material: 'steel', x: -0.5, y: 17.5, w: 3.5, h: 2.5, label: 'Head House', mass: 8, lean: 1, decor: ['louvre'], note: 'Steel head house on top. Heavy and top-heavy.' },
   ],
 };

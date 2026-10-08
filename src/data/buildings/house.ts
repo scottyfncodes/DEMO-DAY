@@ -32,6 +32,7 @@ function siding(prefix: string, y: number, h: number, anchorPrefix: string, labe
     h,
     label: `${labelPrefix} Siding ${i + 1}`,
     anchors: [`${anchorPrefix}${i + 1}`, `${anchorPrefix}${i + 2}`],
+    decor: [prefix === 'sg' && i === 1 ? ('door' as const) : ('window' as const)],
     note: 'Clapboard siding nailed to the posts either side.',
   }));
 }
@@ -67,6 +68,7 @@ export const HOUSE: BuildingDef = {
       w: 0.6,
       h: 7.2,
       label: 'Chimney',
+      decor: ['cap'],
       note: 'Free-standing brick stack. Not tied to the timber frame, so the house can fall without it.',
     },
   ],

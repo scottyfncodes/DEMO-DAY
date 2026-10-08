@@ -7,6 +7,16 @@ export interface Bounds {
   maxY: number;
 }
 
+/** The level of the world hierarchy a zoom shows best. */
+export type ZoomTier = 'District' | 'Block' | 'Lot' | 'Detail';
+
+export function zoomTier(scale: number): ZoomTier {
+  if (scale < 4) return 'District';
+  if (scale < 13) return 'Block';
+  if (scale < 48) return 'Lot';
+  return 'Detail';
+}
+
 interface CameraTarget {
   x: number;
   y: number;
@@ -24,7 +34,9 @@ export class Camera {
   /** Pixels per metre. */
   scale = 40;
   minScale = 6;
-  maxScale = 200;
+  maxScale = 360;
+  /** Where the camera centre may go, in world metres. */
+  limits?: Bounds;
   viewportWidth = 1;
   viewportHeight = 1;
   /** Extra space at the bottom (for the bottom sheet), in CSS pixels. */
@@ -35,6 +47,8 @@ export class Camera {
   shakeY = 0;
   /** Momentary zoom kick (0.05 = 5% closer), for detonations and big landings. */
   punch = 0;
+  /** Glide after a flick, in CSS pixels per millisecond. */
+  private glide = { vx: 0, vy: 0, last: 0 };
 
   setViewport(width: number, height: number): void {
     this.viewportWidth = Math.max(1, width);
@@ -72,8 +86,25 @@ export class Camera {
 
   panBy(dxPixels: number, dyPixels: number): void {
     this.anim = undefined;
+    this.glide.vx = 0;
+    this.glide.vy = 0;
     this.x -= dxPixels / this.scale;
     this.y += dyPixels / this.scale;
+    this.clampToLimits();
+  }
+
+  /** Keeps gliding after the finger lifts, easing to a stop. */
+  fling(vx: number, vy: number, now: number): void {
+    const speed = Math.hypot(vx, vy);
+    if (speed < 0.15) return;
+    const cap = 4 / Math.max(1, speed);
+    this.glide = { vx: vx * Math.min(1, cap), vy: vy * Math.min(1, cap), last: now };
+  }
+
+  stop(): void {
+    this.anim = undefined;
+    this.glide.vx = 0;
+    this.glide.vy = 0;
   }
 
   zoomAt(sx: number, sy: number, factor: number): void {
@@ -83,6 +114,15 @@ export class Camera {
     const after = this.screenToWorld(sx, sy);
     this.x += before.x - after.x;
     this.y += before.y - after.y;
+    this.clampToLimits();
+  }
+
+  /** Never lets the view wander off the edge of the world or under the ground. */
+  clampToLimits(): void {
+    const l = this.limits;
+    if (!l) return;
+    this.x = clamp(this.x, l.minX, l.maxX);
+    this.y = clamp(this.y, l.minY, l.maxY);
   }
 
   /** Computes the camera target that frames `bounds` with padding in metres. */
@@ -110,6 +150,21 @@ export class Camera {
   }
 
   update(now: number): void {
+    const g = this.glide;
+    if (!this.anim && (g.vx !== 0 || g.vy !== 0)) {
+      const dt = Math.min(50, now - g.last);
+      g.last = now;
+      this.x -= (g.vx * dt) / this.scale;
+      this.y += (g.vy * dt) / this.scale;
+      const decay = Math.exp(-dt / 260);
+      g.vx *= decay;
+      g.vy *= decay;
+      if (Math.hypot(g.vx, g.vy) < 0.01) {
+        g.vx = 0;
+        g.vy = 0;
+      }
+      this.clampToLimits();
+    }
     const a = this.anim;
     if (!a) return;
     const t = clamp((now - a.start) / a.duration, 0, 1);

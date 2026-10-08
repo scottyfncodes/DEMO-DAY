@@ -243,7 +243,7 @@ export class Simulation {
       const def = CHARGES[charge.type];
       const target = this.memberById.get(charge.memberId);
       if (!target) continue;
-      const point = chargePoint(target);
+      const point = chargePoint(target, charge.at);
       const px = point.x;
       const py = point.y;
       const power = def.power * this.powerMul;

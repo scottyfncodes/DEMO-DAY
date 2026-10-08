@@ -1,6 +1,6 @@
 import type { ChargeType, Direction, Loadout, PlacedCharge } from '../core/types';
 import { CHARGES, CHARGE_ORDER } from '../data/charges';
-import type { Building } from '../structure/building';
+import { clampChargeAt, type Building } from '../structure/building';
 
 export type PlaceResult = { ok: true; charge: PlacedCharge } | { ok: false; reason: string };
 
@@ -44,7 +44,8 @@ export class Plan {
     return this.charges.filter((c) => c.memberId === memberId);
   }
 
-  place(type: ChargeType, memberId: string, direction?: Direction): PlaceResult {
+  /** Places a charge; `at` slides it along the member (see PlacedCharge.at). */
+  place(type: ChargeType, memberId: string, direction?: Direction, at?: number): PlaceResult {
     if (this.locked) return { ok: false, reason: 'Placements are locked. Demo Day is armed.' };
     if (!this.building.members.has(memberId)) return { ok: false, reason: 'Unknown component.' };
     if (this.remaining(type) <= 0) return { ok: false, reason: `No ${CHARGES[type].name.toLowerCase()}s left.` };
@@ -52,6 +53,7 @@ export class Plan {
     if (member?.protect) return { ok: false, reason: 'Protected structure. Charges cannot be placed here.' };
     const charge: PlacedCharge = { id: `ch${this.nextId++}`, type, memberId };
     if (CHARGES[type].directional) charge.direction = direction ?? 'left';
+    if (at !== undefined && member) charge.at = clampChargeAt(member, at);
     this.charges.push(charge);
     return { ok: true, charge };
   }
@@ -76,6 +78,16 @@ export class Plan {
     const c = this.charges.find((x) => x.id === chargeId);
     if (!c || !CHARGES[c.type].directional) return false;
     c.direction = direction;
+    return true;
+  }
+
+  /** Slides a placed charge along its member. */
+  setAt(chargeId: string, at: number): boolean {
+    if (this.locked) return false;
+    const c = this.charges.find((x) => x.id === chargeId);
+    const m = c ? this.building.members.get(c.memberId) : undefined;
+    if (!c || !m) return false;
+    c.at = clampChargeAt(m, at);
     return true;
   }
 
