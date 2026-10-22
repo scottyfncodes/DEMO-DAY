@@ -117,7 +117,7 @@ export function contractScreen(app: App, params: Record<string, string>): Screen
             { class: 'stat-grid' },
             h('div', { class: 'stat' }, h('span', { class: 'k', text: 'Best Payout' }), h('span', { class: 'v accent', text: formatMoney(record.bestPayout) })),
             h('div', { class: 'stat' }, h('span', { class: 'k', text: 'Best Destruction' }), h('span', { class: 'v', text: formatPercent(record.bestRemoved) })),
-            h('div', { class: 'stat' }, h('span', { class: 'k', text: 'Fewest Charges' }), h('span', { class: 'v', text: Number.isFinite(record.fewestCharges) ? String(record.fewestCharges) : '—' })),
+            h('div', { class: 'stat' }, h('span', { class: 'k', text: 'Fewest Charges' }), h('span', { class: 'v', text: Number.isFinite(record.fewestCharges) ? String(record.fewestCharges) : 'None yet' })),
             h('div', { class: 'stat' }, h('span', { class: 'k', text: 'Attempts' }), h('span', { class: 'v', text: `${record.attempts} (${record.completions} done)` })),
           ),
         )
