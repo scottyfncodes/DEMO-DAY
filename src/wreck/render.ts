@@ -2,6 +2,8 @@ import type { Camera } from '../render/camera';
 import type { WreckFx } from './fx';
 import { BALL_R, HEIGHTMAP, PIECE_FALLING, PIECE_STANDING, craneFoot, craneHook, type Prediction, type WreckSim } from './sim';
 import { GROUND, type PieceDef } from './structure';
+import { drawBlocks, drawChargeMarks, drawChargeTargets, drawDozer, drawExcavator, drawFlawMarks, drawFloaters, drawNeighbour, drawSiteMarks, drawToolMarks, type Floater } from './render-site';
+import type { Tool } from './tools';
 
 /**
  * Canvas renderer for the wrecking-ball slice. Draws in world metres with a
@@ -18,6 +20,13 @@ export interface DrawOptions {
   holding?: 'ball' | 'hook';
   /** Pieces to outline (the replay's decisive hit). */
   highlight?: number;
+  /** The tool in hand: decides which guides are drawn. */
+  tool?: Tool;
+  floaters?: Floater[];
+  /** performance.now(), for the floaters. */
+  now?: number;
+  /** Draw the job site (pad, pit, machines, charges). Off for the bare title hero. */
+  site?: boolean;
 }
 
 const C = {
@@ -109,13 +118,26 @@ export class WreckRenderer {
       minY: cam.screenToWorld(0, this.height).y,
       maxY: cam.screenToWorld(0, 0).y,
     };
+    const site = opt.site !== false;
+    const tool = opt.tool ?? 'ball';
+    if (site) drawNeighbour(ctx, s);
     this.drawGround(ctx, view, sim);
+    if (site) {
+      drawSiteMarks(ctx, s, sim);
+      drawBlocks(ctx, sim, s, 'vault', tool, opt.time);
+    }
     this.drawRubble(ctx, view, sim);
+    if (site) drawBlocks(ctx, sim, s, 'debris', tool, opt.time);
     const detail = s;
     // Settled sections first, then the standing building, then anything in motion.
     for (const b of sim.state.bodies) if (b.state === 'rubble') this.drawBody(ctx, sim, b, detail, opt);
     this.drawStanding(ctx, sim, detail, opt);
+    if (site && tool === 'charge') drawChargeTargets(ctx, sim, s);
     for (const b of sim.state.bodies) if (b.state !== 'rubble') this.drawBody(ctx, sim, b, detail, opt);
+    if (site) {
+      drawExcavator(ctx, sim, s, opt.time, tool === 'excavator');
+      drawDozer(ctx, sim, s, opt.time, tool === 'dozer');
+    }
     fx.drawChunks(ctx, s);
     this.drawCrane(ctx, sim, s, opt);
     fx.drawDust(ctx);
@@ -130,7 +152,13 @@ export class WreckRenderer {
     if (opt.prediction) this.drawPrediction(ctx, sim, opt.prediction, s);
     if (opt.highlight !== undefined && opt.highlight >= 0) this.drawHighlight(ctx, sim, opt.highlight, s, opt.time);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    if (opt.handles) this.drawHandles(ctx, sim, cam, opt);
+    if (site) {
+      drawFlawMarks(ctx, sim, cam, opt.time);
+      drawChargeMarks(ctx, sim, cam, opt.time);
+      if (opt.handles) drawToolMarks(ctx, sim, cam, tool);
+    }
+    if (opt.handles && tool === 'ball') this.drawHandles(ctx, sim, cam, opt);
+    if (opt.floaters?.length) drawFloaters(ctx, cam, opt.floaters, opt.now ?? 0);
   }
 
   // ----------------------------------------------------------- backdrop
@@ -183,12 +211,12 @@ export class WreckRenderer {
     // Site hoarding behind the lot.
     ctx.fillStyle = '#353029';
     for (let x = Math.floor(v.minX / 3) * 3; x < v.maxX; x += 3) {
-      if (x > -2 && x < 51) continue;
+      if (x > -50 && x < 90) continue;
       ctx.fillRect(x, 0, 2.9, 2.2);
     }
     ctx.fillStyle = '#4a4238';
     for (let x = Math.floor(v.minX / 3) * 3; x < v.maxX; x += 3) {
-      if (x > -2 && x < 51) continue;
+      if (x > -50 && x < 90) continue;
       ctx.fillRect(x, 2.05, 2.9, 0.15);
     }
   }

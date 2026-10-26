@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planSwing } from '../src/ui/screens/wreck';
+import { planSwing } from '../src/wreck/autoplay';
 import { solve } from '../src/wreck/solver';
 import { PIECE_GONE, PIECE_STANDING, WreckSim, craneHook, halden } from '../src/wreck/sim';
 import type { PieceDef } from '../src/wreck/structure';
@@ -105,7 +105,7 @@ describe('wrecking ball simulation', () => {
     // Knock most of the strength out of it in one go, as a hard hit would.
     sim.state.hp[col.id] = col.hp * 0.15;
     sim.state.lastRoot = 1;
-    sim.state.roots[1] = { swing: 1, hitPiece: col.id, hitEnergy: 1, hitSpeed: 1, hitX: 0, hitY: 0, hitT: 0, firstFailPiece: -1, firstFailKind: '', firstFailT: 0, mass: 0, peakMoving: 0, lastT: 0 };
+    sim.state.roots[1] = { swing: 1, tool: 'ball', index: 1, chain: 0, charges: 0, hitPiece: col.id, hitEnergy: 1, hitSpeed: 1, hitX: 0, hitY: 0, hitT: 0, firstFailPiece: -1, firstFailKind: '', firstFailT: 0, mass: 0, peakMoving: 0, lastT: 0 };
     sim.state.dirty = true;
     sim.step();
     expect(sim.state.status[col.id]).toBe(PIECE_STANDING);
