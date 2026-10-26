@@ -1859,3 +1859,78 @@ p {
     max-width: 760px;
   }
 }
+
+/* Four or five machines on a phone: tighter tiles, names still whole. */
+.machine-bar.many {
+  gap: 4px;
+}
+
+.machine-bar.many .machine-tile {
+  padding: 7px 5px 6px;
+  min-height: 74px;
+}
+
+.machine-bar.many .mt-icon,
+.machine-bar.many .mt-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.machine-bar.many .mt-count {
+  font-size: 22px;
+}
+
+.machine-bar.many .mt-name {
+  font-size: 11px;
+  letter-spacing: 0;
+  text-overflow: clip;
+}
+
+.machine-bar.many .mt-pips {
+  gap: 2px;
+}
+
+/* Narrow phones (iPhone SE and mini): nothing may push the page sideways. */
+.page-head h2 {
+  min-width: 0;
+  font-size: clamp(22px, 7.2vw, 30px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.page-head .chip {
+  flex: none;
+}
+
+.garage-tab {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.garage-tab span:last-child {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+@media (max-width: 390px) {
+  .garage-tab {
+    font-size: 11px;
+    letter-spacing: 0;
+  }
+
+  .job-thumb {
+    width: 104px;
+    height: 84px;
+  }
+
+  .job-info h3 {
+    font-size: 19px;
+  }
+
+  .record .btn {
+    padding: 0 10px;
+  }
+}

@@ -1,14 +1,14 @@
 {
   "name": "DEMO DAY",
   "short_name": "DEMO DAY",
-  "description": "A demolition puzzle game. Study the building, place your charges, get clear, and watch it come down.",
+  "description": "A demolition strategy game. Every machine has a limited number of moves: bring the building down, clear the lot, get paid and upgrade your fleet.",
   "id": "demo-day",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#0d1219",
-  "theme_color": "#0d1219",
+  "orientation": "any",
+  "background_color": "#131416",
+  "theme_color": "#131416",
   "lang": "en",
   "categories": ["games"],
   "icons": [

@@ -341,6 +341,30 @@ export class SceneRenderer {
         ctx.fill();
       }
     }
+    if (clear > 0.85) {
+      // A cleared lot gets graded and staked out for whatever comes next.
+      const a = Math.min(1, (clear - 0.85) / 0.1);
+      ctx.globalAlpha = a;
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 0.05;
+      ctx.beginPath();
+      for (let z = 0; z < ZB - 6; z += 1.2) {
+        ctx.moveTo(px(L.lotMin + 1, z), py(0.01, z));
+        ctx.lineTo(px(L.lotMax - 1, z), py(0.01, z));
+      }
+      ctx.stroke();
+      for (const [sx, sz] of [
+        [L.lotMin + 2, 0],
+        [L.lotMax - 2, 0],
+        [L.lotMin + 2, D],
+        [L.lotMax - 2, D],
+      ] as Array<[number, number]>) {
+        box(ctx, sx - 0.06, 0, 0.12, 1.1, sz, sz + 0.12, { front: '#d9c79f' });
+        ctx.fillStyle = '#f06b1f';
+        ctx.fillRect(px(sx, sz), py(0.95, sz), 0.5, 0.25);
+      }
+      ctx.globalAlpha = 1;
+    }
     if (!site) return;
     // Salvage pad: steel plates.
     plane(L.padMin, L.padMax, -4.5, D + 2, '#9b968c');

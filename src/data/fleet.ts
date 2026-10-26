@@ -119,7 +119,7 @@ export const UPGRADES: UpgradeDef[] = [
   // Excavator.
   { id: 'excavator-power-1', machine: 'excavator', category: 'power', name: 'Hydraulic breaker', cost: 5500, effect: 'Bite 330 → 470 kJ', detail: 'Three bites finish a ground-floor column.', apply: (k) => void (k.bite = 470) },
   { id: 'excavator-power-2', machine: 'excavator', category: 'power', name: 'Twin-ram breaker', cost: 14000, effect: 'Bite 470 → 640 kJ', detail: 'Chews through core walls and heavy slabs.', requires: 'excavator-power-1', minJobs: 4, apply: (k) => void (k.bite = 640) },
-  { id: 'excavator-eff-1', machine: 'excavator', category: 'efficiency', name: 'Long-reach boom', cost: 6500, effect: 'Reach about 26 m → 32 m', detail: 'Work two storeys higher from the same spot.', apply: (k) => void (k.excReach = 1.25) },
+  { id: 'excavator-eff-1', machine: 'excavator', category: 'efficiency', name: 'Long-reach boom', cost: 6500, effect: 'Reach about 24 m → 30 m', detail: 'Work two storeys higher from the same spot.', apply: (k) => void (k.excReach = 1.25) },
   { id: 'excavator-cap', machine: 'excavator', category: 'capability', name: 'Demolition shears', cost: 10000, effect: 'Steel ×3.5, cores and stacks ×1.4', detail: 'Cuts trusses and steel frames cleanly, and splits heavy slabs for the dozer.', minJobs: 2, apply: (k) => void (k.shears = true) },
   // Dozer.
   { id: 'dozer-power-1', machine: 'dozer', category: 'power', name: 'Push frame', cost: 4500, effect: 'Pushes blocks up to 20 t → 36 t', detail: 'Shoves broken slabs without the excavator breaking them first.', apply: (k) => void (k.heavyPush = 36) },

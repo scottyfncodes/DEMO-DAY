@@ -239,7 +239,7 @@ export function drawExcavator(ctx: Ctx, sim: WreckSim, time: number, active: boo
     const a = Math.atan2(uy, ux) + s * open;
     const tipx = e.jawX + Math.cos(a) * 1.25;
     const tipy = e.jawY + Math.sin(a) * 1.25;
-    prism(ctx, [e.jawX - uy * 0.25 * s, e.jawY + ux * 0.25 * s, tipx, tipy, e.jawX + uy * 0.05 * s, e.jawY - ux * 0.05 * s], -2.2, -1.0, { front: '#2e3337' });
+    prism(ctx, [e.jawX - uy * 0.25 * s, e.jawY + ux * 0.25 * s, tipx, tipy, e.jawX + uy * 0.05 * s, e.jawY - ux * 0.05 * s], -2.2, -1.0, { front: sim.state.kit.shears ? '#aab3b8' : '#2e3337' });
   }
   if (e.stunned > 0) stunMark(ctx, x, y + 5.4, time);
 }
@@ -270,8 +270,11 @@ export function drawDozer(ctx: Ctx, sim: WreckSim, time: number, active: boolean
   // Push arms and the blade (raised when it is only driving).
   const lift = d.bladeDown ? 0 : 0.45;
   const bx = x + f * 2.75;
+  // Bigger blades are taller and wider: the upgrade shows on the machine.
+  const bh = 1.7 * Math.sqrt(sim.state.kit.bladeCap / 9);
+  const bw = Math.min(1.2, (sim.state.kit.bladeCap - 9) * 0.05);
   prism(ctx, poly(x, y + 0.6 + lift, f, [0.6, 0, 2.6, 0, 2.6, 0.35, 0.6, 0.35]), -3.0, -0.4, { front: Y.dark });
-  prism(ctx, poly(bx, y + lift, f, [-0.15, 0, 0.55, 0.05, 0.4, 0.9, 0.55, 1.7, -0.15, 1.7]), MZ0 - 0.3, MZ1 + 0.3, { front: shade(Y.body, 0.82), top: Y.body, side: shade(Y.body, 0.55) });
+  prism(ctx, poly(bx, y + lift, f, [-0.15, 0, 0.55, 0.05, 0.4, bh * 0.53, 0.55, bh, -0.15, bh]), MZ0 - 0.3 - bw, MZ1 + 0.3, { front: sim.state.kit.ram ? '#8d969b' : shade(Y.body, 0.82), top: Y.body, side: shade(Y.body, 0.55) });
   ctx.fillStyle = '#9ea4a8';
   ctx.fillRect(px(bx + f * 0.42 - 0.05, MZ0 - 0.3), py(y + lift, MZ0 - 0.3), 0.14, 0.18);
   beacon(ctx, x - f * 1.4, y + 3.58, -1.6, active && Math.sin(time * 9) > 0);
@@ -313,7 +316,8 @@ export function drawLoader(ctx: Ctx, sim: WreckSim, time: number, active: boolea
   ctx.moveTo(px(x + f * 0.4, -1.3), py(y + 2.1, -1.3));
   ctx.lineTo(px(bucketX - f * 0.6, -1.3), py(by + 0.6, -1.3));
   ctx.stroke();
-  const bucket = poly(bucketX, by, f, [-0.75, 0, 0.6, 0, 0.75, 0.55, 0.2, 1.3, -0.75, 1.25]);
+  const k = Math.sqrt(sim.state.kit.bucket / 7);
+  const bucket = poly(bucketX, by, f, [-0.75 * k, 0, 0.6 * k, 0, 0.75 * k, 0.55 * k, 0.2 * k, 1.3 * k, -0.75 * k, 1.25 * k]);
   prism(ctx, bucket, MZ0 + 0.1, MZ1, { front: shade(Y.body, 0.85), side: shade(Y.body, 0.6) });
   if (l.bucket > 0.05) {
     ctx.fillStyle = '#8b8275';

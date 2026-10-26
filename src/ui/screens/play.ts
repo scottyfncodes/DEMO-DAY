@@ -105,7 +105,7 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
   const finishBar = h('div', { class: 'finish-bar hidden' }, h('span', { text: 'Job done. Finish now, or keep working for bonuses.' }), h('button', { class: 'btn primary sm', text: 'Finish', onClick: () => finish() }));
   const coach = h('div', { class: 'coach hidden', role: 'status' });
   const panel = h('div', { class: 'action-panel' });
-  const bar = h('div', { class: 'machine-bar' });
+  const bar = h('div', { class: `machine-bar${crew.length >= 4 ? ' many' : ''}` });
   const tiles = new Map<MachineId, HTMLButtonElement>();
   for (const m of crew) {
     const tile = h(
@@ -625,6 +625,11 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
       changed = true;
     }
     const step = STEPS[stepIndex] as Step;
+    // The last step is the Finish bar itself; no need to say it twice.
+    if (stepIndex === STEPS.length - 1) {
+      coach.classList.add('hidden');
+      return;
+    }
     if (changed || coach.classList.contains('hidden')) {
       coach.textContent = '';
       coach.append(

@@ -303,13 +303,10 @@ export function halden(): Halden {
 
 /** The calibrated building and its lookups; built once per building and shared. */
 export function prepare(id: string): Halden {
-  const tuning = (globalThis as { __sturdy?: Record<string, number> }).__sturdy;
-  const hit = tuning ? undefined : cache.get(id);
+  const hit = cache.get(id);
   if (hit) return hit;
   const building = getBuilding(id);
   const def = building.build();
-  const o = (globalThis as { __sturdy?: Record<string, number> }).__sturdy?.[id];
-  if (o !== undefined) def.sturdy = o;
   calibrate(def);
   const adj = buildAdjacency(def);
   const grid = new Map<number, number[]>();
