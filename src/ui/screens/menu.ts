@@ -54,7 +54,7 @@ function heroScene(app: App): { el: HTMLElement; stop: () => void } {
   };
 
   const draw = (now: number): void => {
-    renderer.draw(sim, camera, fx, { time: now / 1000, stressView: false, handles: false });
+    renderer.draw(sim, camera, fx, { time: now / 1000, stressView: false, handles: false, site: false });
   };
 
   const frame = (now: number): void => {
@@ -134,7 +134,7 @@ export function menuScreen(app: App): ScreenInstance {
         'div',
         { class: 'menu-title' },
         h('h1', {}, 'DEMO ', h('span', { text: 'DAY' })),
-        h('p', { text: 'One crane. One ball. Fifteen storeys.' }),
+        h('p', { text: 'Charges, a crane, an excavator and a dozer. Fifteen storeys to clear.' }),
       ),
       returning
         ? h(
@@ -153,7 +153,7 @@ export function menuScreen(app: App): ScreenInstance {
             app.go('wreck');
           },
         },
-        h('span', { class: 'menu-cta-next' }, 'Swing', h('small', { text: 'The Halden Exchange' })),
+        h('span', { class: 'menu-cta-next' }, 'Start the job', h('small', { text: 'The Halden Exchange' })),
       ),
       h(
         'nav',

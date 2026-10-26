@@ -41,7 +41,10 @@ export type Cue =
   | 'newBest'
   | 'swing'
   | 'glass'
-  | 'creak';
+  | 'creak'
+  | 'bite'
+  | 'push'
+  | 'engine';
 
 /** Flavour for cues that vary: a charge type or a material. */
 export type Variant = 'small' | 'heavy' | 'directional' | 'shaped' | 'wood' | 'brick' | 'concrete' | 'steel';
@@ -95,7 +98,7 @@ export class AudioEngine {
     // Rate-limit noisy cues so a big collapse does not clip.
     const last = this.lastCue.get(cue) ?? -1;
     const minGap =
-      cue === 'impact' || cue === 'crumble' ? 0.06 : cue === 'crack' || cue === 'glass' ? 0.05 : cue === 'failMajor' || cue === 'heavyLanding' ? 0.18 : cue === 'creak' ? 0.6 : 0.02;
+      cue === 'impact' || cue === 'crumble' ? 0.06 : cue === 'push' ? 0.3 : cue === 'engine' ? 0.18 : cue === 'crack' || cue === 'glass' ? 0.05 : cue === 'failMajor' || cue === 'heavyLanding' ? 0.18 : cue === 'creak' ? 0.6 : 0.02;
     if (now - last < minGap) return;
     this.lastCue.set(cue, now);
     switch (cue) {
@@ -244,6 +247,20 @@ export class AudioEngine {
         break;
       case 'creak':
         this.groan(0.6 + strength * 0.5, 0.05 + strength * 0.08);
+        break;
+      case 'bite':
+        // Crusher jaws: a hydraulic hiss, then the crunch.
+        this.noise(0.12, 0.12, 2600, 'bandpass');
+        this.thud(70, 0.25, 0.35 + strength * 0.35, 0.08);
+        this.crack('concrete', 0.3 + strength * 0.5);
+        break;
+      case 'push':
+        // Rubble grinding along in front of a blade.
+        this.noise(0.35, 0.05 + strength * 0.12, 500 + strength * 300, 'lowpass');
+        break;
+      case 'engine':
+        // A diesel pulling under load.
+        this.thud(48 + strength * 14, 0.22, 0.06 + strength * 0.08);
         break;
       case 'newBest':
         this.chord([523, 659, 784], 0.4, 0.22);

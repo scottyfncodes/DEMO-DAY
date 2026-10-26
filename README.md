@@ -1,17 +1,34 @@
 # DEMO DAY
 
-A mobile-first demolition game for the browser. One crane, one wrecking ball, and the Halden Exchange: a fifteen-storey framed tower with a brick podium, a concrete core and a wing cantilevered off a steel truss. Find the hit that brings it down.
+A mobile-first demolition arcade game for the browser. One job, the Halden Exchange: a fifteen-storey framed tower with a brick podium, a concrete core and a wing cantilevered off a steel truss, on a tight lot next to Pellow's Bakery. Bring it down with charges, a wrecking ball, a high-reach excavator and a dozer, clear the lot, and get scored on how you did it.
 
 **Play it:** https://scottyfncodes.github.io/DEMO-DAY/
 
 Add it to your iPhone Home Screen (Share → Add to Home Screen) for the full-screen app experience.
 
-## The wrecking ball
+## The job
 
-- **Drag the ball** back and let go to swing. While you hold it, a dotted line shows the arc and brackets the piece it will hit, with what that piece carries, how intact it is, and how fast the ball will be going when it gets there.
-- **Drag the boom tip** to move the crane: it drives and luffs to put the hook where you want it. Hits are hardest at the bottom of the arc, so where you park the crane matters as much as how far you pull.
-- **Loads** tints the structure by how hard each part is working: amber is loaded, red is failing.
-- When it is down, the result card names the swing that started the collapse, what it hit, what gave way next and how many tonnes came down with it. **Watch the hit** replays that swing exactly; **Try another way** stands the building back up.
+Objectives: bring the building down (12% or less still standing) and clear 88% of the lot. Bonus: recover the bank vault from inside the core, keep debris off Pellow's, salvage the steel. The clock starts when something first moves; par is 5:00 and the shift ends at 9:00.
+
+The four tools sit in a bar at the bottom of the screen. Each has its own touch controls, camera framing and a one-line prompt the first time you pick it up.
+
+| Tool | Control | What it is for |
+| --- | --- | --- |
+| **Charges** | Tap a column, core wall, slab or the truss to strap one on; tap again to take it off. **Fire** sets them off in the order you placed them. | 3 cutters (cut the member) and 2 blast charges (weaker on the member, but strip cladding, loosen joints and uncover weak points around them). |
+| **Ball** | Drag the ball back and let go; drag the boom tip to move the crane. | Finishing what the charges started, toppling blocks, and setting off charges: a hit on a charged member detonates it. |
+| **Excavator** | Touch to place the jaws (the machine drives into reach), hold **Crunch** to bite. | Stumps, sections hung up on the frame, the core's base wall, and slabs too heavy for the dozer. |
+| **Dozer** | Touch to drive. Blade first pushes, reversing rides over the rubble. **Turn** swaps which way the blade faces. | Pushing rubble into the haul pit (right) or onto the salvage pad (left). Steel and the vault are only worth money on the pad. |
+
+How the tools feed each other:
+
+- **Charges → ball.** A charge cuts or cracks its member, so the next swing finds the building already overloaded. A swing that hits an unfired charge sets it off (bonus). Falling debris sets off charges too.
+- **Ball and blasts → weak points.** Eight members have hidden defects (corroded ties, a cold joint in the core). Damage nearby uncovers them; anything aimed at a weak point does double damage and scores a bonus when it goes.
+- **Collapse → excavator.** Heavy core slabs (over 20 t) stop the dozer dead until the excavator breaks them. The vault sits behind the core's base wall: it is safe from falling debris while that wall stands, and only comes out once the wall is crunched or knocked down.
+- **Excavator → dozer → score.** Stumps block the dozer; the blade carries about 18 m² of rubble and spills the rest, so big heaps take several passes. Lot clearance, salvage, the vault, time under par and unused charges all score. Debris on Pellow's and machines caught by falling sections cost points.
+
+Every action is recorded. A chain counter follows each one (failures it set off), and the result sheet shows a grade (S to D), a score breakdown, the move that did the most with an exact replay, and eight feats that reward a different approach next time (no charges, no swings, a 30-chain swing, the vault 90% intact, a clean lot, inside par). Best score and feats persist on the device.
+
+The code: `src/wreck/tools.ts` (charges, weak points, excavator, dozer, blocks, site), `src/wreck/job.ts` (objectives and scoring), `src/wreck/autoplay.ts` (an automated crew used by the tests and the smoke run), `src/wreck/render-site.ts` (machines, site and overlays), `src/ui/screens/wreck.ts` (the screen).
 
 ### How the building behaves (`src/wreck/`)
 
@@ -21,8 +38,9 @@ Add it to your iPhone Home Screen (Share → Add to Home Screen) for the full-sc
 - **Failure creeps**: anything over capacity builds strain and gives way after a delay that depends on how overloaded it is. That is why a column can crack, hold for a few seconds, then buckle. Strain shows as sag, glowing joints and cracks.
 - **Falling sections** (`sim.ts`): whatever loses its path to the ground becomes one rigid body that keeps its shape until impacts and hard landings break it apart along its joints. It damages what it lands on, which is how collapse travels down through floors.
 - **Overturning**: a block whose centre of mass passes its last footing goes over as one piece.
-- **Cause tracking**: every failure is blamed on the swing that set it off, so the game can point at the exact hit.
-- Fine debris, glass and dust (`fx.ts`) are cosmetic and driven by simulation events. The simulation is fixed-step and deterministic, which is what makes the replay exact.
+- **Cause tracking**: every failure is blamed on the action that set it off (a swing, a volley, a crunch), so the game can point at the exact move. A machine nibbling at a collapse someone else started does not take the credit.
+- **Rubble** is a heightmap the dozer pushes; heavy concrete and steel come to rest as blocks it has to push (or the excavator has to break).
+- Fine debris, glass and dust (`fx.ts`) are cosmetic and driven by simulation events. The simulation is fixed-step and deterministic, and every player command is logged with its tick, which is what makes the replay exact.
 
 ### The charge contracts
 
@@ -73,7 +91,7 @@ pnpm typecheck    # tsc --noEmit
 pnpm build        # production build to dist/
 pnpm tune         # prints how a set of placements plays out on every building
 pnpm icons        # regenerates PWA icons from public/favicon.svg
-pnpm preview && pnpm smoke   # headless iPhone wrecking-ball playthrough with screenshots
+pnpm preview && pnpm smoke   # headless iPhone playthrough of the whole job (every tool by touch, then the crew finishes) with screenshots
 ```
 
 Deployed to GitHub Pages by `.github/workflows/deploy.yml` on every push to `main`.

@@ -204,6 +204,53 @@ export class WreckFx {
           for (let i = 0; i < 3; i++) this.chunk(e.x + (Math.random() - 0.5) * 0.5, e.y, (Math.random() - 0.5) * 1.5, 0, 0.05 + Math.random() * 0.08, '#9a948a');
           break;
         }
+        case 'blast': {
+          // A cutter is a sharp bright cut; a blast charge throws a ring of dust and grit.
+          const big = e.kind === 'blast';
+          this.shake = Math.max(this.shake, big ? 1.3 : 0.9);
+          this.punch = Math.max(this.punch, big ? 0.07 : 0.05);
+          this.flash = 1;
+          this.flashX = e.x;
+          this.flashY = e.y;
+          const n = Math.round((big ? 40 : 22) * q);
+          for (let i = 0; i < n; i++) {
+            const ang = Math.random() * Math.PI * 2;
+            const sp = (big ? 8 : 5) + Math.random() * (big ? 14 : 9);
+            this.chunk(e.x, e.y, Math.cos(ang) * sp, Math.sin(ang) * sp + 2, 0.06 + Math.random() * 0.2, i % 4 === 0 ? '#ffd27a' : (CHUNK_COLORS.concrete[i % 4] as string), false, 2.5);
+          }
+          const puffs = big ? 12 : 6;
+          for (let i = 0; i < puffs; i++) {
+            const ang = (i / puffs) * Math.PI * 2;
+            this.dust(e.x + Math.cos(ang) * 0.6, e.y + Math.sin(ang) * 0.6, big ? 1.6 : 1, Math.cos(ang) * (big ? 4 : 2.5), Math.sin(ang) * 2 + 1, big ? 6 : 4, 0.55, big ? 1.6 : 1.1);
+          }
+          break;
+        }
+        case 'bite': {
+          if (e.target === 'air') break;
+          this.shake = Math.max(this.shake, 0.25);
+          const cols = CHUNK_COLORS[e.material];
+          for (let i = 0; i < Math.round(9 * q); i++) this.chunk(e.x + (Math.random() - 0.5) * 0.8, e.y, (Math.random() - 0.5) * 5, Math.random() * 3, 0.08 + Math.random() * 0.2, cols[i % cols.length] as string, e.material === 'glass');
+          this.dust(e.x, e.y, 0.9, 0, 0.4, 2.5, 0.45);
+          break;
+        }
+        case 'blockBreak': {
+          this.shake = Math.max(this.shake, 0.4);
+          const cols = CHUNK_COLORS[e.material];
+          for (let i = 0; i < Math.round(14 * q); i++) this.chunk(e.x + (Math.random() - 0.5) * 2, e.y, (Math.random() - 0.5) * 6, 1 + Math.random() * 4, 0.1 + Math.random() * 0.3, cols[i % cols.length] as string);
+          for (let i = 0; i < 4; i++) this.dust(e.x + (Math.random() - 0.5) * 2, e.y, 1.2, (Math.random() - 0.5) * 2, 0.5, 4, 0.5);
+          break;
+        }
+        case 'ram': {
+          this.shake = Math.max(this.shake, 0.2);
+          const cols = CHUNK_COLORS[e.material];
+          for (let i = 0; i < 5; i++) this.chunk(e.x, e.y, (Math.random() - 0.5) * 4, Math.random() * 2, 0.08 + Math.random() * 0.15, cols[i % cols.length] as string, e.material === 'glass');
+          break;
+        }
+        case 'machineHit': {
+          this.shake = Math.max(this.shake, 0.6);
+          for (let i = 0; i < 6; i++) this.dust(e.x + (Math.random() - 0.5) * 3, e.y, 1, (Math.random() - 0.5), 1.2, 5, 0.5);
+          break;
+        }
         case 'detach': {
           const k = Math.min(1, e.mass / 600);
           this.shake = Math.max(this.shake, 0.15 + k * 0.4);
@@ -273,6 +320,12 @@ export class WreckFx {
       const r = Math.random() * b.radius * 0.6;
       this.dust(b.x + Math.cos(ang) * r, b.y + Math.sin(ang) * r, 0.8 + Math.random() * 1.5, b.vx * 0.3, b.vy * 0.15, 3 + Math.random() * 3, 0.32, 0.8);
       if (Math.random() < 0.5) this.chunk(b.x + Math.cos(ang) * r, b.y + Math.sin(ang) * r, b.vx + (Math.random() - 0.5) * 2, b.vy, 0.06 + Math.random() * 0.15, '#9a948a', false, 2.5);
+    }
+    // The dozer's pile churns as it is pushed.
+    const d = sim.state.dozer;
+    if (d.bladeDown && Math.abs(d.speed) > 0.5 && d.load > 0.5 && Math.random() < 0.35 * this.quality) {
+      const f = d.x + d.dir * 3.25;
+      this.dust(f + d.dir * (0.5 + Math.random() * 2), heightAt(hm, f + d.dir) + 0.4, 0.7 + Math.random() * 0.6, d.dir * 0.8, 0.3, 2.5, 0.35, 0.7);
     }
     const decay = this.reducedMotion ? 10 : 3.2;
     this.shake = Math.max(0, this.shake - dt * decay);
