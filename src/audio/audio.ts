@@ -38,7 +38,10 @@ export type Cue =
   | 'heavyLanding'
   | 'settled'
   | 'cash'
-  | 'newBest';
+  | 'newBest'
+  | 'swing'
+  | 'glass'
+  | 'creak';
 
 /** Flavour for cues that vary: a charge type or a material. */
 export type Variant = 'small' | 'heavy' | 'directional' | 'shaped' | 'wood' | 'brick' | 'concrete' | 'steel';
@@ -91,7 +94,8 @@ export class AudioEngine {
     const now = ctx.currentTime;
     // Rate-limit noisy cues so a big collapse does not clip.
     const last = this.lastCue.get(cue) ?? -1;
-    const minGap = cue === 'impact' || cue === 'crumble' ? 0.06 : cue === 'crack' ? 0.05 : cue === 'failMajor' || cue === 'heavyLanding' ? 0.18 : 0.02;
+    const minGap =
+      cue === 'impact' || cue === 'crumble' ? 0.06 : cue === 'crack' || cue === 'glass' ? 0.05 : cue === 'failMajor' || cue === 'heavyLanding' ? 0.18 : cue === 'creak' ? 0.6 : 0.02;
     if (now - last < minGap) return;
     this.lastCue.set(cue, now);
     switch (cue) {
@@ -228,6 +232,19 @@ export class AudioEngine {
         this.blip(1568, 0.09, 0.18, 0.03, 'triangle');
         this.blip(2093, 0.3, 0.2, 0.1, 'triangle');
         break;
+      case 'swing':
+        // The ball leaving the pull: a long air sweep that grows with the pull.
+        this.sweepNoise(0.9 + strength * 0.5, 0.12 + strength * 0.22, 300, 1400 + strength * 900);
+        break;
+      case 'glass':
+        this.noise(0.05, 0.3 + strength * 0.3, 6500, 'highpass');
+        this.blip(3100 + Math.random() * 900, 0.12, 0.05 + strength * 0.05, 0.02, 'triangle');
+        this.blip(4200 + Math.random() * 1200, 0.18, 0.04 + strength * 0.04, 0.06, 'triangle');
+        this.noise(0.4, 0.12 + strength * 0.12, 4800, 'bandpass', 0.05);
+        break;
+      case 'creak':
+        this.groan(0.6 + strength * 0.5, 0.05 + strength * 0.08);
+        break;
       case 'newBest':
         this.chord([523, 659, 784], 0.4, 0.22);
         window.setTimeout(() => this.chord([698, 880, 1046, 1396], 0.9, 0.26), 180);
@@ -287,6 +304,56 @@ export class AudioEngine {
         this.thud(90, 0.18, 0.35 * v);
         this.noise(0.4, 0.2 * v, 900, 'lowpass', 0.03);
     }
+  }
+
+  /** Filtered noise whose cutoff sweeps up then down: air moving past something heavy. */
+  private sweepNoise(duration: number, volume: number, from: number, to: number): void {
+    const ctx = this.ctx as AudioContext;
+    if (!this.noiseBuffer) return;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    src.loop = true;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.Q.value = 1.4;
+    const t0 = ctx.currentTime;
+    filter.frequency.setValueAtTime(from, t0);
+    filter.frequency.exponentialRampToValueAtTime(to, t0 + duration * 0.55);
+    filter.frequency.exponentialRampToValueAtTime(from, t0 + duration);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(volume, t0 + duration * 0.5);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.master as GainNode);
+    src.start(t0);
+    src.stop(t0 + duration + 0.05);
+  }
+
+  /** Low, slow, detuned groan of a structure taking more than it should. */
+  private groan(duration: number, volume: number): void {
+    const ctx = this.ctx as AudioContext;
+    const t0 = ctx.currentTime;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 420;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(volume, t0 + duration * 0.3);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+    for (const detune of [0, 7]) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      const f = 46 + Math.random() * 18 + detune;
+      osc.frequency.setValueAtTime(f, t0);
+      osc.frequency.linearRampToValueAtTime(f * 0.82, t0 + duration);
+      osc.connect(filter);
+      osc.start(t0);
+      osc.stop(t0 + duration + 0.05);
+    }
+    filter.connect(gain);
+    gain.connect(this.master as GainNode);
   }
 
   private blip(freq: number, duration: number, volume: number, delay = 0, type: OscillatorType = 'sine'): void {
