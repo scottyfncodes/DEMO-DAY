@@ -1,20 +1,32 @@
-# DEMO DAY 🦺💥
+# DEMO DAY
 
-A mobile-first demolition puzzle game for the browser. Study the building, work out what has to fail first, place a limited set of charges, get clear, and watch it come down. Then read the demolition report and collect the payout.
+A mobile-first demolition game for the browser. One crane, one wrecking ball, and the Halden Exchange: a fifteen-storey framed tower with a brick podium, a concrete core and a wing cantilevered off a steel truss. Find the hit that brings it down.
 
 **Play it:** https://scottyfncodes.github.io/DEMO-DAY/
 
 Add it to your iPhone Home Screen (Share → Add to Home Screen) for the full-screen app experience.
 
-## The loop
+## The wrecking ball
 
-1. **Inspect** – tap any component to see what it rests on, what it carries, its material and any pre-existing damage.
-2. **Plan** – pick a charge from a finite loadout and place it on a component. The preview tells you what the blast will break directly, but not what the building does afterwards. That part is your job.
-3. **Arm** – lock the plan. Every charge goes live, the site clears, fuses burn down through the countdown.
-4. **Demo Day** – detonate and watch the collapse. Each charge has its own blast; members shudder and crack just before they give way, the load they carried lights up, and a quiet running record shows the chain you set off. Then the dust settles.
-5. **Report** – structure removed, collateral, charges used, structural efficiency, and a checklist of the requirements.
-6. **Payout** – contract value, then bonuses one at a time, then the total. Your best payout, what this run was short by, and which bonuses were left on the table.
-7. **Run it again** – your last plan comes back so you can change one charge and try to beat it.
+- **Drag the ball** back and let go to swing. While you hold it, a dotted line shows the arc and brackets the piece it will hit, with what that piece carries, how intact it is, and how fast the ball will be going when it gets there.
+- **Drag the boom tip** to move the crane: it drives and luffs to put the hook where you want it. Hits are hardest at the bottom of the arc, so where you park the crane matters as much as how far you pull.
+- **Loads** tints the structure by how hard each part is working: amber is loaded, red is failing.
+- When it is down, the result card names the swing that started the collapse, what it hit, what gave way next and how many tonnes came down with it. **Watch the hit** replays that swing exactly; **Try another way** stands the building back up.
+
+### How the building behaves (`src/wreck/`)
+
+- **Structure** (`structure.ts`): about 330 pieces (storey-high column segments, floor slabs, glass, brick, core walls, truss bays, rooftop tank, sign and mast) joined by about 900 joints. Members are sized for the loads they carry when intact (`calibrate` in `solver.ts`), so the building starts at roughly half its capacity everywhere.
+- **Load paths** (`solver.ts`): every standing piece passes its weight toward the ground along the cheapest intact paths, split by joint strength. Sideways transfer through slabs builds a moment arm, so a floor bridging a lost column, or a wing hanging off its truss, loads its joints harder.
+- **Damage is local**: the ball's energy goes into the piece it strikes and whatever it is touching, and loosens their joints. Damaged pieces lose capacity.
+- **Failure creeps**: anything over capacity builds strain and gives way after a delay that depends on how overloaded it is. That is why a column can crack, hold for a few seconds, then buckle. Strain shows as sag, glowing joints and cracks.
+- **Falling sections** (`sim.ts`): whatever loses its path to the ground becomes one rigid body that keeps its shape until impacts and hard landings break it apart along its joints. It damages what it lands on, which is how collapse travels down through floors.
+- **Overturning**: a block whose centre of mass passes its last footing goes over as one piece.
+- **Cause tracking**: every failure is blamed on the swing that set it off, so the game can point at the exact hit.
+- Fine debris, glass and dust (`fx.ts`) are cosmetic and driven by simulation events. The simulation is fixed-step and deterministic, which is what makes the replay exact.
+
+### The charge contracts
+
+The original charge-placement contracts are still under **Contracts** on the title screen.
 
 ## The world
 
@@ -61,7 +73,7 @@ pnpm typecheck    # tsc --noEmit
 pnpm build        # production build to dist/
 pnpm tune         # prints how a set of placements plays out on every building
 pnpm icons        # regenerates PWA icons from public/favicon.svg
-pnpm preview && pnpm smoke   # headless iPhone playthrough with screenshots
+pnpm preview && pnpm smoke   # headless iPhone wrecking-ball playthrough with screenshots
 ```
 
 Deployed to GitHub Pages by `.github/workflows/deploy.yml` on every push to `main`.

@@ -8,7 +8,7 @@ import type { SimResult } from './sim/simulation';
 import type { Building } from './structure/building';
 import { clear, h, haptic } from './ui/dom';
 
-export type ScreenName = 'menu' | 'contracts' | 'contract' | 'job' | 'report' | 'equipment' | 'records' | 'settings';
+export type ScreenName = 'wreck' | 'menu' | 'contracts' | 'contract' | 'job' | 'report' | 'equipment' | 'records' | 'settings';
 
 export interface ScreenInstance {
   el: HTMLElement;

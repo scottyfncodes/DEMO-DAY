@@ -7,6 +7,7 @@ import { menuScreen } from './ui/screens/menu';
 import { recordsScreen } from './ui/screens/records';
 import { reportScreen } from './ui/screens/report';
 import { settingsScreen } from './ui/screens/settings';
+import { wreckScreen } from './ui/screens/wreck';
 
 const root = document.getElementById('app');
 if (!root) throw new Error('Missing #app root');
@@ -20,6 +21,7 @@ app.register('report', reportScreen);
 app.register('equipment', equipmentScreen);
 app.register('records', recordsScreen);
 app.register('settings', settingsScreen);
+app.register('wreck', wreckScreen);
 app.go('menu');
 
 // Debug/automation hook (used by the smoke test).
