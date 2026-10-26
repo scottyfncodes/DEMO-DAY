@@ -1,18 +1,20 @@
 import { buildAdjacency, calibrate, solve, type Adjacency, type SolveResult } from './solver';
-import { GROUND, buildHalden, type PieceDef, type PieceMaterial, type StructureDef } from './structure';
+import { getBuilding, type BuildingDef, type SiteLayout } from './buildings';
+import { BASE_KIT, ballRadius, type Kit } from './kit';
+import { GROUND, type PieceDef, type PieceMaterial, type StructureDef } from './structure';
 import {
   FLAW_HIDDEN,
   FLAW_MULT,
   FLAW_SHOWN,
   FLAW_USED,
-  FLAWS,
-  VAULT_HOME,
-  VAULT_LABEL,
   blockFromPiece,
   breakBlock,
   detonate,
   emptyTally,
   initialMachines,
+  orderExcavator,
+  orderLoader,
+  orderPush,
   placeCharge,
   removeCharge,
   revealNear,
@@ -20,6 +22,7 @@ import {
   stepCharges,
   stepDozer,
   stepExcavator,
+  stepLoader,
   stepSite,
   stopBite,
   triggerChargesAt,
@@ -31,6 +34,7 @@ import {
   type Dozer,
   type Excavator,
   type FireCause,
+  type Loader,
   type Tally,
   type Tool,
 } from './tools';
@@ -58,11 +62,11 @@ export const GRAVITY = 12;
 export const BALL_R = 1.05;
 export const BALL_MASS = 4.5;
 export const BOOM = 64;
-const BOOM_FOOT_Y = 3.2;
+export const BOOM_FOOT_Y = 3.2;
 export const CABLE_MIN = 4;
 export const CABLE_MAX = 30;
-const THETA_MIN = (18 * Math.PI) / 180;
-const THETA_MAX = (82 * Math.PI) / 180;
+export const THETA_MIN = (18 * Math.PI) / 180;
+export const THETA_MAX = (82 * Math.PI) / 180;
 const CRANE_SPEED = 7;
 const LUFF_SPEED = 0.45;
 /** How fast overload turns into failure: strain per second per unit of overstress. */
@@ -74,7 +78,7 @@ const HM_MIN_X = -90;
 const HM_MAX_X = 120;
 const GRID = 2;
 /** Heap area per square metre of fallen piece. */
-const RUBBLE_BULK = 0.12;
+const RUBBLE_BULK = 0.24;
 const MAX_WRECK = 260;
 
 export const PIECE_STANDING = 0;
@@ -121,6 +125,7 @@ export interface Ball {
 }
 
 export interface Crane {
+  boom: number;
   baseX: number;
   theta: number;
   targetX: number;
@@ -153,7 +158,26 @@ export interface RootRecord {
   lastT: number;
 }
 
+/** A scripted swing: the crane slews into position, winds the ball back and lets go. */
+export interface CraneOrder {
+  hx: number;
+  hy: number;
+  bx: number;
+  by: number;
+  cable: number;
+  /** Ticks since the order was given. */
+  t: number;
+  /** Tick the ball was let go, or -1 while winding up. */
+  released: number;
+  /** Ball offset from the hook when the order was given. */
+  ox: number;
+  oy: number;
+}
+
 export interface WreckState {
+  kit: Kit;
+  craneOrder?: CraneOrder;
+  loader: Loader;
   tick: number;
   time: number;
   swing: number;
@@ -217,7 +241,11 @@ export type Command =
   | { kind: 'exc'; x: number; y: number }
   | { kind: 'bite'; on: boolean }
   | { kind: 'dozer'; x: number }
-  | { kind: 'turn' };
+  | { kind: 'turn' }
+  | { kind: 'swing'; hx: number; hy: number; bx: number; by: number; cable: number }
+  | { kind: 'excavate'; x: number; y: number; bites: number }
+  | { kind: 'push'; from: number; to: number }
+  | { kind: 'scoop'; x: number };
 
 export type WreckEvent =
   | { type: 'hit'; x: number; y: number; energy: number; speed: number; piece: number; material: PieceMaterial; destroyed: boolean; swing: number }
@@ -234,7 +262,9 @@ export type WreckEvent =
   | { type: 'blockBreak'; x: number; y: number; material: PieceMaterial; mass: number }
   | { type: 'ram'; x: number; y: number; piece: number; material: PieceMaterial }
   | { type: 'salvage'; x: number; y: number; kind: Block['kind']; value: number; where: 'pad' | 'pit' }
-  | { type: 'machineHit'; machine: 'excavator' | 'dozer'; x: number; y: number }
+  | { type: 'machineHit'; machine: 'excavator' | 'dozer' | 'loader'; x: number; y: number }
+  | { type: 'scoop'; x: number; y: number; area: number; block: Block['kind'] | '' }
+  | { type: 'dump'; x: number; y: number; area: number; where: 'pad' | 'pit' }
   | { type: 'chargeLost'; x: number; y: number };
 
 export type DamageCause = 'ball' | 'impact' | 'blast';
@@ -248,23 +278,35 @@ export interface Prediction {
 }
 
 export interface Halden {
+  building: BuildingDef;
+  site: SiteLayout;
   def: StructureDef;
   adj: Adjacency;
   grid: Map<number, number[]>;
   /** Pieces with a weak point, in FLAWS order. */
   flaws: number[];
-  /** The core wall the vault sits behind. */
+  /** The piece the prize sits behind, or -1 when the building has none. */
   vaultHome: number;
   /** Pieces low enough to block a machine on the ground. */
   lowPieces: number[];
 }
 
-let cached: Halden | undefined;
+/** A calibrated building with its site and lookups. */
+export type Prepared = Halden;
 
-/** The calibrated building and its lookups; built once and shared. */
+const cache = new Map<string, Halden>();
+
+/** The Halden Exchange, prepared. */
 export function halden(): Halden {
-  if (cached) return cached;
-  const def = buildHalden();
+  return prepare('halden');
+}
+
+/** The calibrated building and its lookups; built once per building and shared. */
+export function prepare(id: string): Halden {
+  const hit = cache.get(id);
+  if (hit) return hit;
+  const building = getBuilding(id);
+  const def = building.build();
   calibrate(def);
   const adj = buildAdjacency(def);
   const grid = new Map<number, number[]>();
@@ -283,10 +325,11 @@ export function halden(): Halden {
     if (!p) throw new Error(`No piece ${label}`);
     return p.id;
   };
-  const flaws = FLAWS.map((f) => find(f.label));
+  const flaws = building.flaws.map((f) => find(f.label));
   const lowPieces = def.pieces.filter((p) => p.y < 3).map((p) => p.id);
-  cached = { def, adj, grid, flaws, vaultHome: find(VAULT_HOME), lowPieces };
-  return cached;
+  const prepared: Halden = { building, site: building.site, def, adj, grid, flaws, vaultHome: building.prize ? find(building.prize.home) : -1, lowPieces };
+  cache.set(id, prepared);
+  return prepared;
 }
 
 function gridKey(gx: number, gy: number): number {
@@ -294,29 +337,35 @@ function gridKey(gx: number, gy: number): number {
 }
 
 export function craneHook(c: Crane): { x: number; y: number } {
-  return { x: c.baseX + BOOM * Math.cos(c.theta), y: BOOM_FOOT_Y + BOOM * Math.sin(c.theta) };
+  return { x: c.baseX + c.boom * Math.cos(c.theta), y: BOOM_FOOT_Y + c.boom * Math.sin(c.theta) };
 }
 
 export function craneFoot(c: Crane): { x: number; y: number } {
   return { x: c.baseX, y: BOOM_FOOT_Y };
 }
 
-export function initialState(h: Halden = halden()): WreckState {
+export function initialState(h: Halden = halden(), kit: Kit = BASE_KIT): WreckState {
   const n = h.def.pieces.length;
   const nj = h.def.joints.length;
-  const crane: Crane = { baseX: -36, theta: 0.73, targetX: 0, targetY: 0 };
+  const crane: Crane = { boom: h.site.boom, baseX: h.site.craneX, theta: 0.73, targetX: 0, targetY: 0 };
   const hook = craneHook(crane);
   crane.targetX = hook.x;
   crane.targetY = hook.y;
-  const cable = 16;
+  const cable = Math.min(16, h.site.boom * 0.4);
   const flaw = new Uint8Array(n);
-  FLAWS.forEach((f, i) => {
-    flaw[h.flaws[i] as number] = f.known ? FLAW_SHOWN : FLAW_HIDDEN;
+  h.building.flaws.forEach((f, i) => {
+    flaw[h.flaws[i] as number] = f.known || kit.scanner ? FLAW_SHOWN : FLAW_HIDDEN;
   });
-  const home = h.def.pieces[h.vaultHome] as PieceDef;
-  const vault: Block = { id: 1, kind: 'vault', label: VAULT_LABEL, material: 'steel', x: home.x + home.w / 2, y: 0, w: 2.2, h: 1.9, mass: 14, hp: 1, maxHp: 1, area: 0.5, seed: 77 };
-  const { exc, dozer } = initialMachines();
+  const blocks: Block[] = [];
+  const prize = h.building.prize;
+  if (prize) {
+    const home = h.def.pieces[h.vaultHome] as PieceDef;
+    blocks.push({ id: 1, kind: 'vault', label: prize.label, material: 'steel', x: home.x + home.w / 2, y: 0, w: prize.w, h: prize.h, mass: prize.mass, hp: 1, maxHp: 1, area: 0.5, seed: 77 });
+  }
+  const { exc, dozer, loader } = initialMachines(h.site, kit);
   return {
+    kit: { ...kit },
+    loader,
     tick: 0,
     time: 0,
     swing: 0,
@@ -345,11 +394,11 @@ export function initialState(h: Halden = halden()): WreckState {
     flaw,
     charges: [],
     nextChargeId: 1,
-    chargesLeft: { cutter: 3, blast: 2 },
+    chargesLeft: { cutter: 99, blast: 99, shaped: 99 },
     volleys: 0,
     exc,
     dozer,
-    blocks: [vault],
+    blocks,
     nextBlockId: 2,
     tally: emptyTally(),
     wreck: [],
@@ -374,16 +423,52 @@ export class WreckSim {
   solution!: SolveResult;
   private events: WreckEvent[] = [];
 
-  constructor(state?: WreckState, h: Halden = halden()) {
+  constructor(state?: WreckState, h: Halden = halden(), kit: Kit = BASE_KIT) {
     this.h = h;
     this.def = h.def;
-    this.state = state ?? initialState(h);
+    this.state = state ?? initialState(h, kit);
     this.state.dirty = true;
     this.resolve();
   }
 
   snapshot(): WreckState {
     return structuredClone(this.state);
+  }
+
+  /** A copy that can be stepped without touching this one (previews and planning). */
+  probe(): WreckSim {
+    return new WreckSim(structuredClone(this.state), this.h);
+  }
+
+  get ballR(): number {
+    return ballRadius(this.state.kit);
+  }
+
+  get ballMass(): number {
+    return this.state.kit.ballMass;
+  }
+
+  /** Crane pose that puts the hook at (hx, hy), or why it cannot. */
+  craneFor(hx: number, hy: number): { baseX: number; theta: number } | string {
+    const boom = this.state.crane.boom;
+    const sin = (hy - BOOM_FOOT_Y) / boom;
+    if (sin > Math.sin(THETA_MAX)) return 'Too high for the boom.';
+    const theta = Math.max(THETA_MIN, Math.asin(Math.max(-1, sin)));
+    if (Math.abs(BOOM_FOOT_Y + boom * Math.sin(theta) - hy) > 0.01) return 'Too low for the boom.';
+    const baseX = hx - boom * Math.cos(theta);
+    if (baseX > this.craneLimit() + 1e-6) return 'The crane cannot get close enough.';
+    if (baseX < -84) return 'Out of the crane’s reach.';
+    return { baseX, theta };
+  }
+
+  /** Puts the crane exactly where it is told (planning and the end of a scripted slew). */
+  setCraneExact(baseX: number, theta: number): void {
+    const c = this.state.crane;
+    c.baseX = baseX;
+    c.theta = theta;
+    const hook = craneHook(c);
+    c.targetX = hook.x;
+    c.targetY = hook.y;
   }
 
   // ------------------------------------------------------------- controls
@@ -412,10 +497,10 @@ export class WreckSim {
     const len = Math.max(CABLE_MIN, Math.min(CABLE_MAX, d));
     let bx = hook.x + Math.sin(clampedAng) * len;
     let by = hook.y - Math.cos(clampedAng) * len;
-    by = Math.max(BALL_R + heightAt(s.heightmap, bx), by);
+    by = Math.max(this.ballR + heightAt(s.heightmap, bx), by);
     // Never park the ghost inside the building.
     for (let iter = 0; iter < 4; iter++) {
-      const push = this.pushOutOfStructure(bx, by, BALL_R);
+      const push = this.pushOutOfStructure(bx, by, this.ballR);
       if (!push) break;
       bx += push.x;
       by += push.y;
@@ -514,7 +599,29 @@ export class WreckSim {
       case 'turn':
         turnDozer(this);
         return undefined;
+      case 'swing': {
+        const hook = craneHook(this.state.crane);
+        const b = this.state.ball;
+        this.state.craneOrder = { hx: c.hx, hy: c.hy, bx: c.bx, by: c.by, cable: c.cable, t: 0, released: -1, ox: b.x - hook.x, oy: b.y - hook.y };
+        if (this.state.tally.clockStart < 0) this.state.tally.clockStart = this.state.tick;
+        return undefined;
+      }
+      case 'excavate':
+        orderExcavator(this, c.x, c.y, c.bites);
+        return undefined;
+      case 'push':
+        orderPush(this, c.from, c.to);
+        return undefined;
+      case 'scoop':
+        orderLoader(this, c.x);
+        return undefined;
     }
+  }
+
+  /** True while any machine is carrying out an order. */
+  get machinesBusy(): boolean {
+    const s = this.state;
+    return !!s.craneOrder || !!s.exc.order || !!s.dozer.order || s.loader.phase !== 'idle';
   }
 
   /** Seconds on the job clock (it starts with the first thing that moves). */
@@ -564,9 +671,9 @@ export class WreckSim {
         }
       }
       path.push(x, y);
-      const hit = this.firstContact(x, y, BALL_R);
+      const hit = this.firstContact(x, y, this.ballR);
       if (hit >= 0) return { path, hitPiece: hit, hitX: x, hitY: y, speed: Math.hypot(vx, vy) };
-      if (y - BALL_R < heightAt(s.heightmap, x) + 0.05 && i > 2) break;
+      if (y - this.ballR < heightAt(s.heightmap, x) + 0.05 && i > 2) break;
       // Stop once it has swung through and is coming back.
       if (i > 10 && Math.abs(vx) < 0.05 && Math.abs(vy) < 0.05) break;
     }
@@ -581,6 +688,7 @@ export class WreckSim {
     s.tick += 1;
     s.time = s.tick * DT;
     this.updateCrane();
+    this.updateCraneOrder();
     stepCharges(this);
     if (s.dirty) this.resolve();
     this.updateStrain();
@@ -590,6 +698,7 @@ export class WreckSim {
     this.updateBodies();
     stepExcavator(this);
     stepDozer(this);
+    stepLoader(this);
     if (s.dirty) this.resolve();
     if (s.tick % 4 === 0) this.relaxRubble();
     stepSite(this);
@@ -604,11 +713,58 @@ export class WreckSim {
     for (let i = 0; i < 600; i++) this.updateCrane();
   }
 
+  /**
+   * Scripted swing: slew quickly to the planned pose while winding the ball
+   * back, then let go from exactly the planned point so the swing lands where
+   * the preview said it would.
+   */
+  private updateCraneOrder(): void {
+    const s = this.state;
+    const o = s.craneOrder;
+    if (!o) return;
+    o.t += 1;
+    if (o.released < 0) {
+      const pose = this.craneFor(o.hx, o.hy);
+      const c = s.crane;
+      const wind = Math.min(1, o.t / 42);
+      if (typeof pose !== 'string') {
+        const db = pose.baseX - c.baseX;
+        const dt = pose.theta - c.theta;
+        c.baseX += Math.max(-0.6, Math.min(0.6, db));
+        c.theta += Math.max(-0.025, Math.min(0.025, dt));
+        c.targetX = craneHook(c).x;
+        c.targetY = craneHook(c).y;
+      }
+      const hook = craneHook(c);
+      const e = wind * wind * (3 - 2 * wind);
+      s.ball.aiming = true;
+      s.ball.vx = 0;
+      s.ball.vy = 0;
+      s.ball.x = hook.x + o.ox + (o.bx - o.hx - o.ox) * e;
+      s.ball.y = hook.y + o.oy + (o.by - o.hy - o.oy) * e;
+      const there = typeof pose === 'string' || (Math.abs(pose.baseX - c.baseX) < 1e-3 && Math.abs(pose.theta - c.theta) < 1e-4);
+      if ((there && wind >= 1) || o.t > 180) {
+        if (typeof pose !== 'string') this.setCraneExact(pose.baseX, pose.theta);
+        s.ball.x = o.bx;
+        s.ball.y = o.by;
+        s.ball.cable = o.cable;
+        this.release();
+        o.released = s.tick;
+      }
+      return;
+    }
+    const since = s.tick - o.released;
+    const speed = Math.hypot(s.ball.vx, s.ball.vy);
+    if ((since > 80 && speed < 2.5) || since > 210) s.craneOrder = undefined;
+  }
+
   private updateCrane(): void {
     const c = this.state.crane;
-    const ty = Math.max(BOOM_FOOT_Y + BOOM * Math.sin(THETA_MIN), Math.min(BOOM_FOOT_Y + BOOM * Math.sin(THETA_MAX), c.targetY));
-    const theta = Math.asin((ty - BOOM_FOOT_Y) / BOOM);
-    const base = Math.max(-80, Math.min(this.craneLimit(), c.targetX - BOOM * Math.cos(theta)));
+    if (this.state.craneOrder) return;
+    const boom = c.boom;
+    const ty = Math.max(BOOM_FOOT_Y + boom * Math.sin(THETA_MIN), Math.min(BOOM_FOOT_Y + boom * Math.sin(THETA_MAX), c.targetY));
+    const theta = Math.asin((ty - BOOM_FOOT_Y) / boom);
+    const base = Math.max(-80, Math.min(this.craneLimit(), c.targetX - boom * Math.cos(theta)));
     const dTheta = theta - c.theta;
     const maxT = LUFF_SPEED * DT;
     c.theta += Math.max(-maxT, Math.min(maxT, dTheta));
@@ -624,8 +780,10 @@ export class WreckSim {
       if (this.state.status[p.id] !== PIECE_STANDING || p.y > 3) continue;
       if (p.x < minX) minX = p.x;
     }
-    if (!Number.isFinite(minX)) minX = 40;
-    return Math.min(minX - 9, 60);
+    const site = this.h.site;
+    const clearance = Math.min(9, 3 + this.state.crane.boom * 0.1);
+    if (!Number.isFinite(minX)) minX = site.lotMax;
+    return Math.min(minX - clearance, site.pitMin - 8);
   }
 
   // ------------------------------------------------------------ solving
@@ -660,6 +818,34 @@ export class WreckSim {
       return;
     }
     if (r.detached.length) this.detachGroups(r.detached);
+    this.dropOrphanedInfill();
+  }
+
+  /**
+   * A wall panel or a window bay only stands because the frame holds it: once
+   * every tie to the frame has gone, it falls over instead of standing on its
+   * own like a slice of the building.
+   */
+  private dropOrphanedInfill(): void {
+    const s = this.state;
+    const def = this.def;
+    for (const p of def.pieces) {
+      if (p.carriesOthers || s.status[p.id] !== PIECE_STANDING || p.h < 1.5) continue;
+      let ground = false;
+      let held = false;
+      for (const jid of this.h.adj.joints[p.id] as number[]) {
+        if (!s.jointOk[jid]) continue;
+        const j = def.joints[jid];
+        if (!j) continue;
+        if (j.b === GROUND) {
+          ground = true;
+          continue;
+        }
+        const other = j.a === p.id ? j.b : j.a;
+        if (s.status[other] === PIECE_STANDING && (def.pieces[other] as PieceDef).carriesOthers) held = true;
+      }
+      if (ground && !held) this.destroyStanding(p.id, s.lastRoot, 'overload');
+    }
   }
 
   /**
@@ -941,7 +1127,7 @@ export class WreckSim {
       }
     }
     // Ground and rubble.
-    const floor = heightAt(s.heightmap, ball.x) + BALL_R;
+    const floor = heightAt(s.heightmap, ball.x) + this.ballR;
     if (ball.y < floor) {
       ball.y = floor;
       if (ball.vy < 0) ball.vy *= -0.15;
@@ -957,7 +1143,7 @@ export class WreckSim {
     const s = this.state;
     const ball = s.ball;
     for (const b of s.blocks) {
-      const c = circleRect(ball.x, ball.y, BALL_R, b.x - b.w / 2, b.y, b.w, b.h);
+      const c = circleRect(ball.x, ball.y, this.ballR, b.x - b.w / 2, b.y, b.w, b.h);
       if (!c) continue;
       const vn = ball.vx * c.nx + ball.vy * c.ny;
       ball.x += c.nx * c.depth;
@@ -965,9 +1151,9 @@ export class WreckSim {
       if (vn >= 0) continue;
       ball.vx -= 1.3 * vn * c.nx;
       ball.vy -= 1.3 * vn * c.ny;
-      const energy = 0.5 * BALL_MASS * vn * vn;
+      const energy = 0.5 * this.ballMass * vn * vn;
       if (energy < 40) continue;
-      this.events.push({ type: 'hit', x: ball.x - c.nx * BALL_R, y: ball.y - c.ny * BALL_R, energy, speed: -vn, piece: -1, material: b.material, destroyed: false, swing: s.ballRoot });
+      this.events.push({ type: 'hit', x: ball.x - c.nx * this.ballR, y: ball.y - c.ny * this.ballR, energy, speed: -vn, piece: -1, material: b.material, destroyed: false, swing: s.ballRoot });
       if (b.kind === 'vault') {
         s.tally.vaultCondition = Math.max(0, s.tally.vaultCondition - energy / 3000);
         continue;
@@ -983,10 +1169,10 @@ export class WreckSim {
     const ball = s.ball;
     const def = this.def;
     const contacts: Array<{ id: number; nx: number; ny: number; depth: number }> = [];
-    for (const id of this.query(ball.x - BALL_R, ball.y - BALL_R, ball.x + BALL_R, ball.y + BALL_R)) {
+    for (const id of this.query(ball.x - this.ballR, ball.y - this.ballR, ball.x + this.ballR, ball.y + this.ballR)) {
       if (s.status[id] !== PIECE_STANDING) continue;
       const p = def.pieces[id] as PieceDef;
-      const c = circleRect(ball.x, ball.y, BALL_R, p.x, p.y, p.w, p.h);
+      const c = circleRect(ball.x, ball.y, this.ballR, p.x, p.y, p.w, p.h);
       if (c) contacts.push({ id, ...c });
     }
     if (!contacts.length) return;
@@ -1002,7 +1188,7 @@ export class WreckSim {
     }
     const speed = -vnMin;
     if (speed > 1.2) {
-      const energy = 0.5 * BALL_MASS * speed * speed;
+      const energy = 0.5 * this.ballMass * speed * speed;
       const root = s.ballRoot;
       const pp = def.pieces[primary.id] as PieceDef;
       const rec = s.roots[root];
@@ -1010,19 +1196,19 @@ export class WreckSim {
         rec.hitEnergy = energy;
         rec.hitPiece = primary.id;
         rec.hitSpeed = speed;
-        rec.hitX = ball.x - primary.nx * BALL_R;
-        rec.hitY = ball.y - primary.ny * BALL_R;
+        rec.hitX = ball.x - primary.nx * this.ballR;
+        rec.hitY = ball.y - primary.ny * this.ballR;
         rec.hitT = s.time;
       }
       // Spread the blow: most into the struck piece, some into whatever else the ball is touching or nearly touching.
       const near: Array<{ id: number; w: number }> = [{ id: primary.id, w: 1 }];
-      const reach = BALL_R + 0.7;
+      const reach = this.ballR + 0.7;
       for (const id of this.query(ball.x - reach, ball.y - reach, ball.x + reach, ball.y + reach)) {
         if (id === primary.id || s.status[id] !== PIECE_STANDING) continue;
         const p = def.pieces[id] as PieceDef;
         const d = distToRect(ball.x, ball.y, p.x, p.y, p.w, p.h);
         if (d > reach) continue;
-        near.push({ id, w: 0.38 * (1 - Math.max(0, d - BALL_R * 0.6) / reach) });
+        near.push({ id, w: 0.38 * (1 - Math.max(0, d - this.ballR * 0.6) / reach) });
       }
       let wsum = 0;
       for (const nn of near) wsum += nn.w;
@@ -1036,13 +1222,13 @@ export class WreckSim {
         if (nn.id === primary.id) absorbedPrimary = a;
       }
       if (energy > 60) {
-        const hx = ball.x - primary.nx * BALL_R;
-        const hy = ball.y - primary.ny * BALL_R;
+        const hx = ball.x - primary.nx * this.ballR;
+        const hy = ball.y - primary.ny * this.ballR;
         revealNear(this, hx, hy, 2.2);
-        triggerChargesAt(this, primary.id, hx, hy, root, 'ball', BALL_R + 0.4);
+        triggerChargesAt(this, primary.id, hx, hy, root, 'ball', this.ballR + 0.4);
       }
       const destroyed = s.status[primary.id] !== PIECE_STANDING;
-      this.events.push({ type: 'hit', x: ball.x - primary.nx * BALL_R, y: ball.y - primary.ny * BALL_R, energy, speed, piece: primary.id, material: pp.material, destroyed, swing: root });
+      this.events.push({ type: 'hit', x: ball.x - primary.nx * this.ballR, y: ball.y - primary.ny * this.ballR, energy, speed, piece: primary.id, material: pp.material, destroyed, swing: root });
       if (destroyed) {
         // Punched through: keep going with what the piece did not soak up.
         const left = Math.max(0, energy - absorbedPrimary * 1.4);
@@ -1061,7 +1247,7 @@ export class WreckSim {
     for (const c of contacts) {
       if (s.status[c.id] !== PIECE_STANDING) continue;
       const p = def.pieces[c.id] as PieceDef;
-      const again = circleRect(ball.x, ball.y, BALL_R, p.x, p.y, p.w, p.h);
+      const again = circleRect(ball.x, ball.y, this.ballR, p.x, p.y, p.w, p.h);
       if (!again) continue;
       ball.x += again.nx * again.depth;
       ball.y += again.ny * again.depth;
@@ -1078,7 +1264,7 @@ export class WreckSim {
     const ball = s.ball;
     for (const b of s.bodies) {
       if (b.state === 'rubble') continue;
-      if (Math.hypot(b.x - ball.x, b.y - ball.y) > b.radius + BALL_R) continue;
+      if (Math.hypot(b.x - ball.x, b.y - ball.y) > b.radius + this.ballR) continue;
       const cos = Math.cos(b.a);
       const sin = Math.sin(b.a);
       // Ball centre in body space.
@@ -1090,12 +1276,12 @@ export class WreckSim {
         const p = this.def.pieces[b.pieces[k] as number] as PieceDef;
         const cx = b.lx[k] as number;
         const cy = b.ly[k] as number;
-        const c = circleRect(lx, ly, BALL_R, cx - p.w / 2, cy - p.h / 2, p.w, p.h);
+        const c = circleRect(lx, ly, this.ballR, cx - p.w / 2, cy - p.h / 2, p.w, p.h);
         if (!c) continue;
         const nx = c.nx * cos - c.ny * sin;
         const ny = c.nx * sin + c.ny * cos;
-        const cpx = ball.x - nx * BALL_R - b.x;
-        const cpy = ball.y - ny * BALL_R - b.y;
+        const cpx = ball.x - nx * this.ballR - b.x;
+        const cpy = ball.y - ny * this.ballR - b.y;
         const bvx = b.vx - b.w * cpy;
         const bvy = b.vy + b.w * cpx;
         const vn = (ball.vx - bvx) * nx + (ball.vy - bvy) * ny;
@@ -1103,17 +1289,17 @@ export class WreckSim {
         ball.y += ny * c.depth;
         if (vn >= 0) break;
         const rn = cpx * ny - cpy * nx;
-        const inv = 1 / BALL_MASS + 1 / b.mass + (rn * rn) / b.inertia;
+        const inv = 1 / this.ballMass + 1 / b.mass + (rn * rn) / b.inertia;
         const j = (-(1 + 0.2) * vn) / inv;
-        ball.vx += (j * nx) / BALL_MASS;
-        ball.vy += (j * ny) / BALL_MASS;
+        ball.vx += (j * nx) / this.ballMass;
+        ball.vy += (j * ny) / this.ballMass;
         b.vx -= (j * nx) / b.mass;
         b.vy -= (j * ny) / b.mass;
         b.w -= (j * rn) / b.inertia;
         if (b.state === 'perched') this.wake(b);
-        const energy = 0.5 * BALL_MASS * vn * vn;
+        const energy = 0.5 * this.ballMass * vn * vn;
         if (energy > 20) {
-          this.events.push({ type: 'hit', x: ball.x - nx * BALL_R, y: ball.y - ny * BALL_R, energy, speed: -vn, piece: b.pieces[k] as number, material: p.material, destroyed: false, swing: s.ballRoot });
+          this.events.push({ type: 'hit', x: ball.x - nx * this.ballR, y: ball.y - ny * this.ballR, energy, speed: -vn, piece: b.pieces[k] as number, material: p.material, destroyed: false, swing: s.ballRoot });
           this.damageBodyPiece(b, k, energy * 0.6, s.ballRoot || b.root);
         }
         break;

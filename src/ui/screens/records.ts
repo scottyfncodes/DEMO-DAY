@@ -1,58 +1,33 @@
 import type { App, ScreenInstance } from '../../app';
-import { formatMoney, formatPercent } from '../../core/format';
+import { formatMoney } from '../../core/format';
 import { CONTRACTS } from '../../data/contracts';
+import { completedCount, isUnlocked } from '../../game/progression';
 import { h } from '../dom';
+import { screenHeader, stars } from './common';
 
+/** Saved records: best pay, stars and fewest moves per job, and the totals. */
 export function recordsScreen(app: App): ScreenInstance {
   const save = app.save;
-  const list = h('div', { class: 'stack' });
-  let attempts = 0;
-  for (const c of CONTRACTS) {
+  const totalStars = CONTRACTS.reduce((m, c) => m + (save.records[c.id]?.bestStars ?? 0), 0);
+  const rows = CONTRACTS.map((c) => {
     const r = save.records[c.id];
-    if (!r) continue;
-    attempts += r.attempts;
-    list.append(
-      h(
-        'div',
-        { class: 'card' },
-        h('div', { class: 'row' }, h('h3', { text: c.title }), h('span', { class: `pill ${r.completions > 0 ? 'ok' : 'danger'}`, text: r.completions > 0 ? `${r.completions}× complete` : 'Not completed' })),
-        h(
-          'div',
-          { class: 'stat-grid' },
-          h('div', { class: 'stat' }, h('span', { class: 'k', text: 'Best Payout' }), h('span', { class: 'v accent', text: r.bestPayout > 0 ? formatMoney(r.bestPayout) : 'None yet' })),
-          h('div', { class: 'stat' }, h('span', { class: 'k', text: 'Best Destruction' }), h('span', { class: 'v', text: r.bestRemoved > 0 ? formatPercent(r.bestRemoved) : 'None yet' })),
-          h('div', { class: 'stat' }, h('span', { class: 'k', text: 'Best Collateral' }), h('span', { class: 'v', text: Number.isFinite(r.bestCollateral) ? formatPercent(r.bestCollateral) : 'None yet' })),
-          h('div', { class: 'stat' }, h('span', { class: 'k', text: 'Fewest Charges' }), h('span', { class: 'v', text: Number.isFinite(r.fewestCharges) ? String(r.fewestCharges) : 'None yet' })),
-          h('div', { class: 'stat' }, h('span', { class: 'k', text: 'Best Efficiency' }), h('span', { class: 'v', text: r.bestEfficiency > 0 ? formatPercent(r.bestEfficiency, 0) : 'None yet' })),
-          h('div', { class: 'stat' }, h('span', { class: 'k', text: 'Attempts' }), h('span', { class: 'v', text: String(r.attempts) })),
-        ),
-      ),
+    const open = isUnlocked(c, save);
+    return h(
+      'li',
+      { class: `record${open ? '' : ' locked'}` },
+      h('span', { class: 'job-no', text: c.number }),
+      h('div', { class: 'rec-main' }, h('b', { text: c.title }), h('small', { text: r?.completions ? `${r.completions} done of ${r.attempts} tries · best ${r.bestMoves} moves` : r?.attempts ? `${r.attempts} tries, not finished yet` : open ? 'Not tried yet' : 'Locked' })),
+      h('div', { class: 'rec-side' }, stars(r?.bestStars ?? 0), h('b', { text: r?.bestPayout ? formatMoney(r.bestPayout) : '·' })),
+      open ? h('button', { class: 'btn ghost sm', text: r?.completions ? 'Replay' : 'Play', onClick: () => app.go('brief', { id: c.id }) }) : null,
     );
-  }
-  if (!list.childElementCount) list.append(h('div', { class: 'empty', text: 'No demolitions on record yet. Take a contract.' }));
-
+  });
   const el = h(
-    'section',
-    { class: 'screen scroll' },
-    h(
-      'div',
-      { class: 'topbar' },
-      h('button', { class: 'btn btn-icon', 'aria-label': 'Back', onClick: () => { app.play('tap'); app.go('menu'); } }, '‹'),
-      h('div', { style: 'flex:1;min-width:0' }, h('h2', { text: 'Records' }), h('div', { class: 'sub', text: 'Can you get more money out of the same building?' })),
-    ),
-    h(
-      'div',
-      { class: 'card' },
-      h(
-        'div',
-        { class: 'stat-grid' },
-        h('div', { class: 'stat' }, h('span', { class: 'k', text: 'Total Earned' }), h('span', { class: 'v accent', text: formatMoney(save.totalEarned) })),
-        h('div', { class: 'stat' }, h('span', { class: 'k', text: 'Balance' }), h('span', { class: 'v', text: formatMoney(save.money) })),
-        h('div', { class: 'stat' }, h('span', { class: 'k', text: 'Contracts Complete' }), h('span', { class: 'v', text: `${save.completed.length} / ${CONTRACTS.length}` })),
-        h('div', { class: 'stat' }, h('span', { class: 'k', text: 'Demo Days' }), h('span', { class: 'v', text: String(attempts) })),
-      ),
-    ),
-    list,
+    'main',
+    { class: 'screen page records' },
+    screenHeader(app, 'Records', true),
+    h('section', { class: 'totals' }, h('div', {}, h('b', { text: `${completedCount(save)}/8` }), h('small', { text: 'jobs done' })), h('div', {}, h('b', { text: `${totalStars}/24` }), h('small', { text: 'stars' })), h('div', {}, h('b', { text: formatMoney(save.totalEarned) }), h('small', { text: 'earned in total' }))),
+    h('ol', { class: 'record-list' }, ...rows),
+    h('p', { class: 'muted small center', text: 'Stars: finish the job, meet every bonus, and come in at or under the move par.' }),
   );
   return { el };
 }

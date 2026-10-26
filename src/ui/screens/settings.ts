@@ -1,66 +1,56 @@
 import type { App, ScreenInstance } from '../../app';
 import { h } from '../dom';
-
-function toggle(app: App, label: string, description: string, get: () => boolean, set: (v: boolean) => void): HTMLElement {
-  const button = h('button', { class: `toggle${get() ? ' on' : ''}`, role: 'switch', 'aria-checked': String(get()), 'aria-label': label });
-  button.addEventListener('click', () => {
-    set(!get());
-    app.persist();
-    app.applySettings();
-    button.classList.toggle('on', get());
-    button.setAttribute('aria-checked', String(get()));
-    app.play('tap');
-  });
-  return h('div', { class: 'setting' }, h('div', {}, h('div', { class: 'k', text: label }), h('div', { class: 'd', text: description })), button);
-}
+import { screenHeader, sheet } from './common';
 
 export function settingsScreen(app: App): ScreenInstance {
-  const s = app.save.settings;
-  let armed = false;
-  const resetButton = h('button', { class: 'btn btn-danger btn-block' }, 'Reset Progress');
-  resetButton.addEventListener('click', () => {
-    if (!armed) {
-      armed = true;
-      resetButton.textContent = 'Tap again to erase everything';
-      app.play('error');
-      window.setTimeout(() => {
-        armed = false;
-        resetButton.textContent = 'Reset Progress';
-      }, 4000);
-      return;
-    }
-    app.store.reset();
-    app.persist();
-    app.applySettings();
-    app.play('remove');
-    app.toast('Progress erased');
-    app.go('menu');
-  });
-
+  const save = app.save;
+  const toggle = (label: string, note: string, key: 'sound' | 'haptics' | 'reducedMotion'): HTMLElement => {
+    const btn = h('button', {
+      class: `toggle${save.settings[key] ? ' on' : ''}`,
+      role: 'switch',
+      'aria-checked': String(save.settings[key]),
+      'aria-label': label,
+      onClick: () => {
+        save.settings[key] = !save.settings[key];
+        app.persist();
+        app.applySettings();
+        btn.classList.toggle('on', save.settings[key]);
+        btn.setAttribute('aria-checked', String(save.settings[key]));
+        app.play('tap');
+      },
+    });
+    return h('div', { class: 'setting-row' }, h('div', {}, h('b', { text: label }), h('small', { text: note })), btn);
+  };
   const el = h(
-    'section',
-    { class: 'screen scroll' },
+    'main',
+    { class: 'screen page settings' },
+    screenHeader(app, 'Settings'),
     h(
-      'div',
-      { class: 'topbar' },
-      h('button', { class: 'btn btn-icon', 'aria-label': 'Back', onClick: () => { app.play('tap'); app.go('menu'); } }, '‹'),
-      h('div', { style: 'flex:1;min-width:0' }, h('h2', { text: 'Settings' })),
-    ),
-    h(
-      'div',
+      'section',
       { class: 'card' },
-      toggle(app, 'Sound', 'Countdown, detonation, debris and payout cues.', () => s.sound, (v) => { s.sound = v; }),
-      toggle(app, 'Reduced Motion', 'Fewer particles, no camera shake, instant reveals.', () => s.reducedMotion, (v) => { s.reducedMotion = v; }),
-      toggle(app, 'Haptics', 'Vibration on placement and payout (where supported).', () => s.haptics, (v) => { s.haptics = v; }),
+      toggle('Sound', 'Machines, impacts and collapses. Everything is also shown on screen.', 'sound'),
+      toggle('Vibration', 'Short buzzes on hits and spends, where the device supports it.', 'haptics'),
+      toggle('Reduce motion', 'No camera shake or zoom kicks; counters jump straight to their totals.', 'reducedMotion'),
     ),
     h(
-      'div',
+      'section',
       { class: 'card' },
-      h('h3', { text: 'Danger Zone' }),
-      h('p', { class: 'hint', text: 'Erases money, unlocks, equipment and records on this device.' }),
-      h('div', { style: 'margin-top:12px' }, resetButton),
+      h('div', { class: 'setting-row' }, h('div', {}, h('b', { text: 'Training job' }), h('small', { text: 'Play the Corner Store with the step-by-step guide again.' })), h('button', { class: 'btn ghost sm', text: 'Replay', onClick: () => {
+        save.tutorialDone = false;
+        app.persist();
+        app.go('brief', { id: 'corner' });
+      } })),
+      h('div', { class: 'setting-row' }, h('div', {}, h('b', { text: 'Start over' }), h('small', { text: 'Clears money, fleet, upgrades and records on this device.' })), h('button', { class: 'btn danger sm', text: 'Reset', onClick: () => {
+        const s = sheet(h('div', { class: 'sheet-body' }, h('h2', { text: 'Start over?' }), h('p', { text: 'Money, machines, upgrades and every record go. This cannot be undone.' }), h('div', { class: 'sheet-actions' }, h('button', { class: 'btn ghost', text: 'Keep my progress', onClick: () => s.close() }), h('button', { class: 'btn danger', text: 'Reset everything', onClick: () => {
+          s.close();
+          app.store.reset();
+          app.applySettings();
+          app.toast('Progress reset.');
+          app.go('title');
+        } }))));
+      } })),
     ),
-    h('p', { class: 'hint', style: 'text-align:center;margin-top:auto', text: 'DEMO DAY · Add to Home Screen for the full-screen experience.' }),
+    h('p', { class: 'muted small center', text: 'Progress is saved on this device. Add DEMO DAY to your Home Screen for full screen play.' }),
   );
   return { el };
 }

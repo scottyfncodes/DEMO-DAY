@@ -246,6 +246,13 @@ export class WreckFx {
           for (let i = 0; i < 5; i++) this.chunk(e.x, e.y, (Math.random() - 0.5) * 4, Math.random() * 2, 0.08 + Math.random() * 0.15, cols[i % cols.length] as string, e.material === 'glass');
           break;
         }
+        case 'scoop':
+        case 'dump': {
+          if (e.area <= 0.05) break;
+          for (let i = 0; i < 3; i++) this.dust(e.x + (Math.random() - 0.5) * 1.5, e.y, 0.8 + Math.min(1, e.area / 8), (Math.random() - 0.5) * 1.2, 0.6, 3, 0.4, 0.8);
+          for (let i = 0; i < Math.round(6 * q); i++) this.chunk(e.x + (Math.random() - 0.5), e.y + 0.5, (Math.random() - 0.5) * 3, Math.random() * 2, 0.08 + Math.random() * 0.15, CHUNK_COLORS.concrete[i % 4] as string);
+          break;
+        }
         case 'machineHit': {
           this.shake = Math.max(this.shake, 0.6);
           for (let i = 0; i < 6; i++) this.dust(e.x + (Math.random() - 0.5) * 3, e.y, 1, (Math.random() - 0.5), 1.2, 5, 0.5);

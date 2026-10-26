@@ -1,14 +1,8 @@
 import { audio, type Cue, type Variant } from './audio/audio';
-import type { ContractDef, PlacedCharge, SaveData } from './core/types';
-import type { Payout } from './game/payout';
-import type { RunOutcome } from './game/progression';
-import { SaveStore } from './game/save';
-import type { Report } from './game/scoring';
-import type { SimResult } from './sim/simulation';
-import type { Building } from './structure/building';
+import { SaveStore, type SaveData } from './game/save';
 import { clear, h, haptic } from './ui/dom';
 
-export type ScreenName = 'wreck' | 'menu' | 'contracts' | 'contract' | 'job' | 'report' | 'equipment' | 'records' | 'settings';
+export type ScreenName = 'title' | 'jobs' | 'brief' | 'play' | 'garage' | 'settings' | 'records';
 
 export interface ScreenInstance {
   el: HTMLElement;
@@ -17,17 +11,8 @@ export interface ScreenInstance {
 
 export type ScreenFactory = (app: App, params: Record<string, string>) => ScreenInstance;
 
-export interface JobResult {
-  contract: ContractDef;
-  building: Building;
-  simResult: SimResult;
-  report: Report;
-  payout: Payout;
-  outcome: RunOutcome;
-}
-
 /**
- * Application controller: owns the save store, audio and the current screen.
+ * Application controller: owns the save, audio and the current screen.
  * Screens are plain factories registered by name.
  */
 export class App {
@@ -37,18 +22,13 @@ export class App {
   private screens = new Map<ScreenName, ScreenFactory>();
   private current?: ScreenInstance;
   currentName?: ScreenName;
-  lastResult?: JobResult;
-  /** The plan from the last armed job, so "Run it again" can start from it. */
-  lastPlan?: { contractId: string; charges: PlacedCharge[] };
   private toastTimer?: number;
 
   constructor(root: HTMLElement, store = new SaveStore()) {
     this.root = root;
     this.store = store;
     this.applySettings();
-    const unlock = (): void => {
-      this.audio.unlock();
-    };
+    const unlock = (): void => this.audio.unlock();
     window.addEventListener('pointerdown', unlock, { passive: true });
     window.addEventListener('keydown', unlock, { passive: true });
   }
@@ -70,6 +50,7 @@ export class App {
     this.currentName = name;
     this.root.append(this.current.el);
     this.root.scrollTop = 0;
+    window.scrollTo(0, 0);
   }
 
   play(cue: Cue, strength = 1, variant?: Variant): void {
@@ -85,10 +66,8 @@ export class App {
   }
 
   applySettings(): void {
-    const s = this.save.settings;
-    this.audio.enabled = s.sound;
-    const prefers = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-    document.documentElement.classList.toggle('reduced-motion', s.reducedMotion || prefers);
+    this.audio.enabled = this.save.settings.sound;
+    document.documentElement.classList.toggle('reduced-motion', this.reducedMotion);
   }
 
   get reducedMotion(): boolean {
@@ -96,12 +75,11 @@ export class App {
     return this.save.settings.reducedMotion || prefers;
   }
 
-  toast(message: string, danger = false, host: HTMLElement = this.root): void {
-    host.querySelectorAll('.toast').forEach((t) => t.remove());
-    const el = h('div', { class: `toast${danger ? ' danger' : ''}`, role: 'status', text: message });
-    el.style.top = 'calc(env(safe-area-inset-top, 0px) + 72px)';
-    host.append(el);
+  toast(message: string, tone: 'info' | 'good' | 'bad' = 'info'): void {
+    document.querySelectorAll('.toast').forEach((t) => t.remove());
+    const el = h('div', { class: `toast ${tone}`, role: 'status', text: message });
+    document.body.append(el);
     window.clearTimeout(this.toastTimer);
-    this.toastTimer = window.setTimeout(() => el.remove(), 2300);
+    this.toastTimer = window.setTimeout(() => el.remove(), 2400);
   }
 }

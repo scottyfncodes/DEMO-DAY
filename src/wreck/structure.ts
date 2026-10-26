@@ -20,11 +20,16 @@ export type PieceKind =
   | 'tank'
   | 'legs'
   | 'mast'
-  | 'sign';
+  | 'sign'
+  | 'siding'
+  | 'door'
+  | 'stack'
+  | 'gable'
+  | 'parapet';
 
 export type PieceMaterial = 'concrete' | 'brick' | 'glass' | 'steel' | 'wood';
 
-export type Zone = 'podium' | 'tower' | 'wing' | 'roof' | 'dock';
+export type Zone = 'podium' | 'tower' | 'wing' | 'roof' | 'dock' | 'main' | 'annex';
 
 export interface PieceDef {
   id: number;
@@ -67,6 +72,8 @@ export interface JointDef {
 
 export interface StructureDef {
   name: string;
+  /** Scales the calibration floors: small, light buildings get members sized to their real loads. */
+  sturdy?: number;
   pieces: PieceDef[];
   joints: JointDef[];
   bounds: { minX: number; maxX: number; minY: number; maxY: number };
@@ -80,24 +87,27 @@ const BEAM_D = 0.6;
 /** Column-line letters, left to right (no I, it reads as 1). */
 const LINES = 'ABCDEFGHJKLMNP';
 
-interface Builder {
+export interface Builder {
   pieces: PieceDef[];
   joints: JointDef[];
 }
 
 let seedState = 1;
+export function reseed(seed: number): void {
+  seedState = seed;
+}
 function nextSeed(): number {
   seedState = (Math.imul(seedState ^ (seedState >>> 15), 2246822519) + 0x9e3779b9) >>> 0;
   return seedState;
 }
 
-function addPiece(b: Builder, p: Omit<PieceDef, 'id' | 'seed' | 'cap'> & { cap?: number }): number {
+export function addPiece(b: Builder, p: Omit<PieceDef, 'id' | 'seed' | 'cap'> & { cap?: number }): number {
   const id = b.pieces.length;
   b.pieces.push({ ...p, id, seed: nextSeed(), cap: p.cap ?? 0 });
   return id;
 }
 
-function addJoint(b: Builder, a: number, other: number, x: number, y: number, cost: number, toughness: number): void {
+export function addJoint(b: Builder, a: number, other: number, x: number, y: number, cost: number, toughness: number): void {
   if (a < 0 && other < 0) return;
   if (a < 0) [a, other] = [other, a];
   b.joints.push({ id: b.joints.length, a, b: other, x, y, cost, cap: 0, toughness });
@@ -364,8 +374,12 @@ export function buildHalden(): StructureDef {
     }
   }
 
-  // Column toughness tracks how much they carry: set after calibration below.
-  const def: StructureDef = { name: 'The Halden Exchange', pieces: b.pieces, joints: b.joints, bounds: { minX: 0, maxX: 0, minY: 0, maxY: 0 }, totalMass: 0 };
+  return finishStructure(b, 'The Halden Exchange');
+}
+
+/** Wraps built pieces and joints up with their bounds and total mass. */
+export function finishStructure(b: Builder, name: string, sturdy = 1): StructureDef {
+  const def: StructureDef = { name, sturdy, pieces: b.pieces, joints: b.joints, bounds: { minX: 0, maxX: 0, minY: 0, maxY: 0 }, totalMass: 0 };
   let minX = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
