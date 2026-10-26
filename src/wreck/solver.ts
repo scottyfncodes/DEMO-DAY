@@ -252,8 +252,10 @@ export function solve(def: StructureDef, adj: Adjacency, input: SolveInput): Sol
 }
 
 /** Safety factors: how many times its intact load each part was built to carry. */
-const PIECE_SF: Record<string, number> = { column: 1.9, core: 2.6, truss: 3.4, beam: 2.4, roof: 2.6, legs: 3 };
-const PIECE_MIN: Record<string, number> = { column: 30, core: 120, truss: 200, beam: 40, roof: 30, legs: 60 };
+const PIECE_SF: Record<string, number> = { column: 1.9, core: 2.6, stack: 2.4, truss: 3.4, beam: 2.4, roof: 2.6, legs: 3 };
+const PIECE_MIN: Record<string, number> = { column: 30, core: 120, stack: 60, truss: 200, beam: 40, roof: 30, legs: 60 };
+/** Column toughness by material: timber posts give way far sooner than reinforced concrete. */
+const COLUMN_HP: Record<string, number> = { concrete: 1, steel: 1.15, brick: 0.8, wood: 0.55, glass: 1 };
 
 /** Joint safety factor and floor, by routing cost (which encodes the joint type). */
 function jointRating(def: StructureDef, jid: number): { sf: number; min: number } {
@@ -263,6 +265,7 @@ function jointRating(def: StructureDef, jid: number): { sf: number; min: number 
   const kinds = [a.kind, b?.kind];
   if (kinds.includes('truss')) return { sf: 3.2, min: 260 };
   if (kinds.includes('core')) return { sf: 2.6, min: 120 };
+  if (kinds.includes('stack')) return { sf: 2.4, min: 60 };
   if (!a.carriesOthers || (b && !b.carriesOthers)) return { sf: 3, min: 3 };
   if (j.b === GROUND) return { sf: 2.4, min: 60 };
   if (j.cost >= 3) return { sf: 2.2, min: 26 };
@@ -285,13 +288,14 @@ export function calibrate(def: StructureDef): void {
   const jointOk = new Uint8Array(nj).fill(1);
   const pieceCap = new Float32Array(n).fill(1e6);
   const jointCap = new Float32Array(nj);
-  for (let i = 0; i < nj; i++) jointCap[i] = jointRating(def, i).min;
+  const sturdy = def.sturdy ?? 1;
+  for (let i = 0; i < nj; i++) jointCap[i] = jointRating(def, i).min * sturdy;
   for (let pass = 0; pass < 4; pass++) {
     const r = solve(def, adj, { alive, jointOk, pieceCap, jointCap });
     for (let i = 0; i < nj; i++) {
       const { sf, min } = jointRating(def, i);
       const stressLoad = (r.jointStress[i] as number) * (jointCap[i] as number);
-      jointCap[i] = Math.max(min, stressLoad * sf);
+      jointCap[i] = Math.max(min * sturdy, stressLoad * sf);
     }
     if (pass === 3) {
       for (const p of def.pieces) {
@@ -300,13 +304,13 @@ export function calibrate(def: StructureDef): void {
           continue;
         }
         const sf = PIECE_SF[p.kind] ?? 2.4;
-        const min = PIECE_MIN[p.kind] ?? 20;
+        const min = (PIECE_MIN[p.kind] ?? 20) * sturdy;
         p.cap = Math.max(min, (r.load[p.id] as number) * sf);
       }
     }
   }
   for (const j of def.joints) j.cap = jointCap[j.id] as number;
   for (const p of def.pieces) {
-    if (p.kind === 'column') p.hp = Math.round(Math.min(760, Math.max(140, 100 + p.cap * 0.55)));
+    if (p.kind === 'column') p.hp = Math.round(Math.min(760, Math.max(140, 100 + p.cap * 0.55)) * (COLUMN_HP[p.material] ?? 1));
   }
 }

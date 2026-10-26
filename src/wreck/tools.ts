@@ -1,3 +1,5 @@
+import type { SiteLayout } from './buildings';
+import type { Kit } from './kit';
 import type { PieceDef, PieceMaterial } from './structure';
 import { DT, PIECE_FALLING, PIECE_GONE, PIECE_STANDING, heightAt, HEIGHTMAP, type Body, type WreckSim } from './sim';
 
@@ -10,32 +12,22 @@ import { DT, PIECE_FALLING, PIECE_GONE, PIECE_STANDING, heightAt, HEIGHTMAP, typ
  * Coordinates as in structure.ts: metres, x right, y up, ground at 0.
  */
 
-export type Tool = 'charge' | 'ball' | 'excavator' | 'dozer';
-export type ChargeKind = 'cutter' | 'blast';
+export type Tool = 'charge' | 'ball' | 'excavator' | 'dozer' | 'loader';
+export type ChargeKind = 'cutter' | 'blast' | 'shaped';
 export type FireCause = 'volley' | 'ball' | 'debris' | 'chain';
 
-export const SITE_LAYOUT = {
-  /** Salvage pad: steel and the vault are worth money here; rubble is loaded out. */
-  padMin: -16,
-  padMax: -6,
-  /** Haul pit: anything pushed in is trucked away. */
-  pitMin: 54,
-  pitMax: 62,
-  /** The lot that has to be left clear. */
-  lotMin: -3,
-  lotMax: 52,
-  /** Pellow's Bakery starts here: debris past this line is collateral. */
-  neighbourX: 66,
-} as const;
+
 
 export const CHARGE_SPEC: Record<ChargeKind, { main: number; splash: number; radius: number; reveal: number; chainR: number }> = {
   // Cuts the member it is strapped to and little else.
   cutter: { main: 760, splash: 90, radius: 1.6, reveal: 3, chainR: 1.6 },
   // Less on the member, a wide shock that strips cladding, loosens joints and finds weak points.
   blast: { main: 420, splash: 300, radius: 3.4, reveal: 7, chainR: 3.2 },
+  // Focused jet: goes through cores, chimneys and trusses, hardly touches anything else.
+  shaped: { main: 1900, splash: 40, radius: 1.1, reveal: 2, chainR: 1 },
 };
 
-export const CHARGE_KINDS = new Set<PieceDef['kind']>(['column', 'core', 'truss', 'beam', 'roof', 'legs']);
+export const CHARGE_KINDS = new Set<PieceDef['kind']>(['column', 'core', 'stack', 'truss', 'beam', 'roof', 'legs']);
 /** Fuse after the button, then the gap between charges in the firing order. */
 export const FUSE_TICKS = 75;
 export const STEP_TICKS = 12;
@@ -69,6 +61,11 @@ export interface Excavator {
   root: number;
   stunned: number;
   sessions: number;
+  /** Arm lengths (m); the long-reach boom makes them longer. */
+  l1: number;
+  l2: number;
+  /** A scripted operation: drive into reach, then bite this many times. */
+  order?: { bites: number; t: number };
 }
 
 export interface Dozer {
@@ -85,6 +82,33 @@ export interface Dozer {
   lastRam: number;
   stunned: number;
   speed: number;
+  /** Blade up: driving into position, not pushing. */
+  travel: boolean;
+  /** A scripted run: drive behind `from`, then push toward `to`. */
+  order?: { phase: 'move' | 'push'; from: number; to: number; dir: 1 | -1; t: number; stuck: number };
+}
+
+export type LoaderPhase = 'idle' | 'go' | 'scoop' | 'carry' | 'dump';
+
+/** The wheel loader: scoops a bucket of rubble or lifts one block, and drives it to the pad or the pit. */
+export interface Loader {
+  x: number;
+  y: number;
+  face: 1 | -1;
+  phase: LoaderPhase;
+  targetX: number;
+  dumpX: number;
+  dumpTo: 'pad' | 'pit' | '';
+  /** Seconds in the current phase. */
+  t: number;
+  /** Rubble in the bucket (m²). */
+  bucket: number;
+  carry?: Block;
+  /** 0 bucket on the ground, 1 raised. */
+  arm: number;
+  stunned: number;
+  speed: number;
+  loads: number;
 }
 
 export type BlockKind = 'slab' | 'steel' | 'vault';
@@ -123,14 +147,16 @@ export interface Tally {
   bites: number;
   /** Tick of the first action that starts the clock, or -1 while planning. */
   clockStart: number;
+  /** Rubble the loader brought to the pad with the scrap sorter fitted (m²). */
+  recycled: number;
 }
 
 /** Truss-heavy and steel pieces leave salvage; core walls leave slabs too heavy for the dozer. */
 export const HEAVY_BLOCK = 20;
 const DOZER_PUSH_MAX = 34;
-const DOZER_HALF = 2.6;
-const BLADE = 0.65;
-const BLADE_H = 1.7;
+export const DOZER_HALF = 2.6;
+export const BLADE = 0.65;
+export const BLADE_H = 1.7;
 /** Rubble the blade can carry before it starts spilling over (m²). */
 export const BLADE_CAP = 9;
 /** How far ahead of the blade the pile it drives reaches (m). */
@@ -138,47 +164,56 @@ const PILE_W = 3.2;
 const EXC_HALF = 3.2;
 export const EXC_L1 = 12.5;
 export const EXC_L2 = 10.5;
+export const LOADER_HALF = 2.4;
+/** Bucket lip ahead of the loader's centre. */
+export const LOADER_REACH = 3.6;
 const EXC_PIVOT_Y = 3.4;
-const BITE_ENERGY = 330;
+
 const BITE_EVERY = 0.62;
 const MAX_BLOCKS = 16;
 const MAX_SLABS = 6;
 
-/** Known defects. The first two came out of the survey; the rest wait to be found. */
-export const FLAWS: Array<{ label: string; note: string; known: boolean }> = [
-  { label: 'Column F · floor 1', note: 'spalled base, rebar exposed', known: true },
-  { label: 'Column J · floor 3', note: 'honeycombed pour', known: true },
-  { label: 'Column H · floor 6', note: 'corroded ties', known: false },
-  { label: 'Core wall · floor 2', note: 'cold joint in the pour', known: false },
-  { label: 'Column E · floor 9', note: 'fire-damaged cover', known: false },
-  { label: 'Column K · floor 6', note: 'cracked truss bearing', known: false },
-  { label: 'Column C · floor 2', note: 'water-damaged base', known: false },
-  { label: 'Column G · floor 12', note: 'undersized repair', known: false },
-];
+
 export const FLAW_HIDDEN = 1;
 export const FLAW_SHOWN = 2;
 export const FLAW_USED = 3;
 /** Damage to a flawed piece is multiplied by this. */
 export const FLAW_MULT = 2;
 
-export const VAULT_LABEL = 'Exchange vault';
-export const VAULT_HOME = 'Core wall · floor 1';
 
 export function blockArea(p: PieceDef): number {
-  return p.w * p.h * 0.12;
+  return p.w * p.h * 0.24;
 }
 
-export function initialMachines(): { exc: Excavator; dozer: Dozer } {
-  const exc: Excavator = { x: 78, y: 0, face: -1, jawX: 0, jawY: 0, targetX: 70, targetY: 7, biting: false, biteTimer: 0, jaw: 0, root: 0, stunned: 0, sessions: 0 };
+export function initialMachines(site: SiteLayout, kit: Kit): { exc: Excavator; dozer: Dozer; loader: Loader } {
+  const face: 1 | -1 = site.excX > (site.lotMin + site.lotMax) / 2 ? -1 : 1;
+  const exc: Excavator = {
+    x: site.excX,
+    y: 0,
+    face,
+    jawX: 0,
+    jawY: 0,
+    targetX: site.excX + face * 8,
+    targetY: 6,
+    biting: false,
+    biteTimer: 0,
+    jaw: 0,
+    root: 0,
+    stunned: 0,
+    sessions: 0,
+    l1: EXC_L1 * kit.excReach,
+    l2: EXC_L2 * kit.excReach,
+  };
   const arm = excavatorArm(exc, exc.targetX, exc.targetY);
   exc.jawX = arm.jx;
   exc.jawY = arm.jy;
-  const dozer: Dozer = { x: -44, y: 0, dir: 1, targetX: -44, bladeDown: false, load: 0, stall: '', ramTimer: 0, root: 0, lastRam: -99, stunned: 0, speed: 0 };
-  return { exc, dozer };
+  const dozer: Dozer = { x: site.dozerX, y: 0, dir: 1, targetX: site.dozerX, bladeDown: false, load: 0, stall: '', ramTimer: 0, root: 0, lastRam: -99, stunned: 0, speed: 0, travel: false };
+  const loader: Loader = { x: site.loaderX, y: 0, face: 1, phase: 'idle', targetX: site.loaderX, dumpX: 0, dumpTo: '', t: 0, bucket: 0, arm: 0, stunned: 0, speed: 0, loads: 0 };
+  return { exc, dozer, loader };
 }
 
 export function emptyTally(): Tally {
-  return { hauled: 0, steelSalvaged: 0, steelScrapped: 0, vaultSaved: -1, vaultCondition: 1, chargesFired: 0, ballFired: 0, debrisFired: 0, chainFired: 0, flawsExploited: 0, machineHits: 0, bites: 0, clockStart: -1 };
+  return { hauled: 0, steelSalvaged: 0, steelScrapped: 0, vaultSaved: -1, vaultCondition: 1, chargesFired: 0, ballFired: 0, debrisFired: 0, chainFired: 0, flawsExploited: 0, machineHits: 0, bites: 0, clockStart: -1, recycled: 0 };
 }
 
 // --------------------------------------------------------------- geometry
@@ -188,7 +223,7 @@ export function excavatorPivot(e: Pick<Excavator, 'x' | 'y' | 'face'>): { x: num
 }
 
 /** Two-link arm, elbow up, reaching as close to (tx, ty) as it can. */
-export function excavatorArm(e: Pick<Excavator, 'x' | 'y' | 'face'>, tx: number, ty: number): { px: number; py: number; ex: number; ey: number; jx: number; jy: number } {
+export function excavatorArm(e: Pick<Excavator, 'x' | 'y' | 'face' | 'l1' | 'l2'>, tx: number, ty: number): { px: number; py: number; ex: number; ey: number; jx: number; jy: number } {
   const p = excavatorPivot(e);
   let dx = tx - p.x;
   let dy = ty - p.y;
@@ -198,16 +233,18 @@ export function excavatorArm(e: Pick<Excavator, 'x' | 'y' | 'face'>, tx: number,
     dy = 0;
     d = 1;
   }
+  const L1 = e.l1;
+  const L2 = e.l2;
   const phi = Math.atan2(dy, dx);
-  const reach = Math.max(3, Math.min(EXC_L1 + EXC_L2 - 0.05, d));
-  const cosA = (EXC_L1 * EXC_L1 + reach * reach - EXC_L2 * EXC_L2) / (2 * EXC_L1 * reach);
+  const reach = Math.max(3, Math.min(L1 + L2 - 0.05, d));
+  const cosA = (L1 * L1 + reach * reach - L2 * L2) / (2 * L1 * reach);
   const alpha = Math.acos(Math.max(-1, Math.min(1, cosA)));
   const t1 = phi + (dx >= 0 ? 1 : -1) * alpha;
   return {
     px: p.x,
     py: p.y,
-    ex: p.x + Math.cos(t1) * EXC_L1,
-    ey: p.y + Math.sin(t1) * EXC_L1,
+    ex: p.x + Math.cos(t1) * L1,
+    ey: p.y + Math.sin(t1) * L1,
     jx: p.x + Math.cos(phi) * reach,
     jy: p.y + Math.sin(phi) * reach,
   };
@@ -243,7 +280,7 @@ export function excavatorBox(e: Excavator): { x0: number; x1: number; y0: number
 
 /** The vault is safe inside the core until the core's base wall is gone. */
 export function vaultProtected(sim: WreckSim): boolean {
-  return sim.state.status[sim.h.vaultHome] === PIECE_STANDING;
+  return sim.h.vaultHome >= 0 && sim.state.status[sim.h.vaultHome] === PIECE_STANDING;
 }
 
 export function vaultBlock(sim: WreckSim): Block | undefined {
@@ -258,7 +295,8 @@ export function placeCharge(sim: WreckSim, piece: number, kind: ChargeKind, y: n
   if (!p || s.status[piece] !== PIECE_STANDING) return 'That part is already down.';
   if (!CHARGE_KINDS.has(p.kind)) return 'Cladding carries nothing. Charge the frame: columns, core walls, slabs, the truss.';
   if (s.charges.some((c) => c.piece === piece && c.state < 2)) return 'That part already has a charge.';
-  if (s.chargesLeft[kind] <= 0) return kind === 'cutter' ? 'No cutters left.' : 'No blast charges left.';
+  if (kind === 'shaped' && !s.kit.shaped) return 'Shaped charges need the licence.';
+  if ((s.chargesLeft[kind] ?? 0) <= 0) return 'No charges of that kind left.';
   s.chargesLeft[kind] -= 1;
   const c: Charge = { id: s.nextChargeId++, piece, kind, dy: Math.max(0.3, Math.min(p.h - 0.3, y - p.y)), order: s.nextChargeId, state: 0, fireTick: -1, root: 0, cause: 'volley' };
   s.charges.push(c);
@@ -329,12 +367,17 @@ export function fireCharge(sim: WreckSim, c: Charge, root: number, cause: FireCa
   else if (cause === 'debris') t.debrisFired++;
   else if (cause === 'chain') t.chainFired++;
   if (t.clockStart < 0) t.clockStart = s.tick;
-  const spec = CHARGE_SPEC[c.kind];
+  const base = CHARGE_SPEC[c.kind];
+  const kit = s.kit;
+  const spec = { ...base, main: base.main * kit.chargePower, splash: base.splash * kit.chargePower, radius: base.radius * kit.chargeRadius, reveal: base.reveal * kit.chargeRadius };
   const pos = chargePos(sim, c);
   const rec = s.roots[root];
   if (rec && cause !== 'volley') rec.charges += 1;
   if (s.status[c.piece] === PIECE_STANDING) {
-    sim.damageStanding(c.piece, spec.main, root, 'blast', 0, 2);
+    const cp = sim.def.pieces[c.piece] as PieceDef;
+    // A shaped jet is made for mass concrete, masonry and steel; it does far less to a light member.
+    const jet = c.kind === 'shaped' && !(cp.kind === 'core' || cp.kind === 'stack' || cp.kind === 'truss' || cp.material === 'steel' || cp.kind === 'column') ? 0.5 : 1;
+    sim.damageStanding(c.piece, spec.main * jet, root, 'blast', 0, 2);
   } else if (s.status[c.piece] === PIECE_FALLING) {
     const b = s.bodies.find((bb) => bb.id === s.bodyOf[c.piece]);
     if (b) {
@@ -416,13 +459,14 @@ export function stepExcavator(sim: WreckSim): void {
   const pivot = excavatorPivot(e);
   const horiz = Math.abs(tx - pivot.x);
   const vert = ty - pivot.y;
-  const comfortable = Math.sqrt(Math.max(0, (EXC_L1 + EXC_L2 - 2.5) ** 2 - vert * vert));
+  const comfortable = Math.sqrt(Math.max(0, (e.l1 + e.l2 - 2.5) ** 2 - vert * vert));
   let want = e.x;
   if (horiz > comfortable) want = tx - e.face * (comfortable + 0.9 - 0.2);
   else if (horiz < 4) want = tx - e.face * (4.9);
   const lim = travelLimits(sim, e.x, EXC_HALF, 2.6);
-  want = Math.max(Math.max(SITE_LAYOUT.padMin - 14, lim.min), Math.min(Math.min(SITE_LAYOUT.neighbourX + 14, lim.max), want));
-  const v = 3.8 * DT;
+  const site = sim.h.site;
+  want = Math.max(Math.max(site.padMin - 14, lim.min), Math.min(Math.min(site.neighbourX + 14, lim.max), want));
+  const v = 7 * DT;
   e.x += Math.max(-v, Math.min(v, want - e.x));
   e.y += (groundUnder(sim, e.x, EXC_HALF) - e.y) * 0.2;
   // The jaw follows the finger at hydraulic speed.
@@ -430,7 +474,7 @@ export function stepExcavator(sim: WreckSim): void {
   const jdx = arm.jx - e.jawX;
   const jdy = arm.jy - e.jawY;
   const jd = Math.hypot(jdx, jdy);
-  const jv = 8 * DT;
+  const jv = 12 * DT;
   if (jd > jv) {
     e.jawX += (jdx / jd) * jv;
     e.jawY += (jdy / jd) * jv;
@@ -442,11 +486,55 @@ export function stepExcavator(sim: WreckSim): void {
   const fixed = excavatorArm(e, e.jawX, e.jawY);
   e.jawX = fixed.jx;
   e.jawY = fixed.jy;
+  const o = e.order;
+  if (o && !e.biting) {
+    o.t += DT;
+    // In position once the tracks have stopped and the jaws are where they can get.
+    const settled = Math.abs(want - e.x) < 0.05 && jd < 0.1;
+    if (settled || o.t > 7) startBite(sim);
+  }
   if (!e.biting) return;
   e.biteTimer -= DT;
   if (e.biteTimer > 0) return;
   e.biteTimer = BITE_EVERY;
   bite(sim);
+  if (o) {
+    o.bites -= 1;
+    if (o.bites <= 0) {
+      stopBite(sim);
+      e.order = undefined;
+    }
+  }
+}
+
+/** One excavator operation: drive into reach of (x, y) and take `bites` bites there. */
+export function orderExcavator(sim: WreckSim, x: number, y: number, bites: number): void {
+  const e = sim.state.exc;
+  e.targetX = x;
+  e.targetY = y;
+  e.biting = false;
+  e.order = { bites: Math.max(1, bites), t: 0 };
+}
+
+/** Where the excavator will stand to work at (x, y), and where its jaws can actually get to. */
+export function excavatorReach(sim: WreckSim, x: number, y: number): { standX: number; jawX: number; jawY: number; short: boolean } {
+  const e = sim.state.exc;
+  const face: 1 | -1 = Math.abs(x - e.x) > 1.5 ? (x > e.x ? 1 : -1) : e.face;
+  const probe = { ...e, face };
+  const ty = Math.max(0.6, y);
+  const pivotY = probe.y + 3.4;
+  const vert = ty - pivotY;
+  const comfortable = Math.sqrt(Math.max(0, (e.l1 + e.l2 - 2.5) ** 2 - vert * vert));
+  const pivotX = (sx: number): number => sx + face * 0.9;
+  let want = e.x;
+  const horiz = Math.abs(x - pivotX(e.x));
+  if (horiz > comfortable) want = x - face * (comfortable + 0.7);
+  else if (horiz < 4) want = x - face * 4.9;
+  const lim = travelLimits(sim, e.x, EXC_HALF, 2.6);
+  const site = sim.h.site;
+  want = Math.max(Math.max(site.padMin - 14, lim.min), Math.min(Math.min(site.neighbourX + 14, lim.max), want));
+  const arm = excavatorArm({ ...probe, x: want, y: 0 }, x, Math.max(heightAt(sim.state.heightmap, x) + 0.5, ty));
+  return { standX: want, jawX: arm.jx, jawY: arm.jy, short: Math.hypot(arm.jx - x, arm.jy - ty) > 1.2 };
 }
 
 export function startBite(sim: WreckSim): void {
@@ -471,6 +559,13 @@ export function stopBite(sim: WreckSim): void {
 }
 
 const BITE_MULT: Record<PieceMaterial, number> = { concrete: 1, brick: 1.3, glass: 1, steel: 0.6, wood: 1.4 };
+
+function biteMult(sim: WreckSim, material: PieceMaterial, kind?: PieceDef['kind']): number {
+  const shears = sim.state.kit.shears;
+  let m = material === 'steel' && shears ? 2.2 : BITE_MULT[material];
+  if (kind === 'core' || kind === 'stack') m *= shears ? 1.7 : 1.25;
+  return m;
+}
 
 function bite(sim: WreckSim): void {
   const s = sim.state;
@@ -498,7 +593,8 @@ function bite(sim: WreckSim): void {
   }
   if (best >= 0) {
     const p = sim.def.pieces[best] as PieceDef;
-    const mult = BITE_MULT[p.material] * (p.kind === 'core' ? 1.25 : 1);
+    const mult = biteMult(sim, p.material, p.kind);
+    const BITE_ENERGY = s.kit.bite;
     if (rec && rec.hitPiece < 0) {
       rec.hitPiece = best;
       rec.hitX = jx;
@@ -519,7 +615,7 @@ function bite(sim: WreckSim): void {
     if (b.state === 'perched') sim.wake(b);
     const id = b.pieces[k] as number;
     const p = sim.def.pieces[id] as PieceDef;
-    sim.damageBodyPiece(b, k, BITE_ENERGY * 1.6 * BITE_MULT[p.material], root);
+    sim.damageBodyPiece(b, k, s.kit.bite * 1.6 * biteMult(sim, p.material, p.kind), root);
     b.vx += -e.face * 0.8;
     sim.emit({ type: 'bite', x: jx, y: jy, piece: id, material: p.material, target: 'section' });
     return;
@@ -543,7 +639,7 @@ function bite(sim: WreckSim): void {
     return;
   }
   if (hit) {
-    hit.hp -= BITE_ENERGY * BITE_MULT[hit.material];
+    hit.hp -= s.kit.bite * biteMult(sim, hit.material) * (s.kit.shears ? 1.6 : 1);
     sim.emit({ type: 'bite', x: jx, y: jy, piece: -1, material: hit.material, target: 'block' });
     if (hit.hp <= 0) breakBlock(sim, hit);
     return;
@@ -615,8 +711,9 @@ export function stepDozer(sim: WreckSim): void {
     return;
   }
   d.ramTimer = Math.max(0, d.ramTimer - DT);
+  runOrder(sim, d);
   const dx = d.targetX - d.x;
-  const forward = Math.sign(dx) === d.dir;
+  const forward = !d.travel && Math.sign(dx) === d.dir;
   d.stall = '';
   if (Math.abs(dx) < 0.04) {
     d.speed = 0;
@@ -625,11 +722,10 @@ export function stepDozer(sim: WreckSim): void {
     return;
   }
   d.load = loadAhead(sim, d);
-  const vmax = forward ? 5.6 * Math.max(0.5, Math.min(1, 1.15 - d.load / (BLADE_CAP * 2.4))) : 5.2;
+  const vmax = forward ? 7 * Math.max(0.5, Math.min(1, 1.15 - d.load / (s.kit.bladeCap * 2.4))) : 8;
   let step = Math.max(-vmax * DT, Math.min(vmax * DT, dx));
   // Site limits: the blade can reach over the pit and the pad, the tracks cannot.
-  const minX = SITE_LAYOUT.padMin - 32;
-  const maxX = SITE_LAYOUT.pitMax - DOZER_HALF - 1;
+  const { minX, maxX } = dozerRange(sim);
   const lim = travelLimits(sim, d.x, DOZER_HALF + (forward ? BLADE : 0), BLADE_H);
   step = Math.max(Math.max(minX, lim.min) - d.x, Math.min(Math.min(maxX, lim.max) - d.x, step));
   if (forward) {
@@ -642,6 +738,63 @@ export function stepDozer(sim: WreckSim): void {
   d.speed = step / DT;
   d.y += (groundUnder(sim, d.x, DOZER_HALF) - d.y) * 0.25;
   if (forward) holdPile(sim, d);
+}
+
+/** Where the dozer's tracks may go on this site. */
+export function dozerRange(sim: WreckSim): { minX: number; maxX: number } {
+  const site = sim.h.site;
+  return { minX: Math.min(site.padMin, site.pitMin) - 6, maxX: Math.max(site.pitMax, site.padMax) - DOZER_HALF - 1 };
+}
+
+/** Where the dozer parks to start a run that pushes from `from`. */
+export function dozerStart(from: number, dir: 1 | -1): number {
+  return from - dir * (DOZER_HALF + BLADE + 0.4);
+}
+
+/** Where the dozer's centre ends a run whose blade reaches `to`. */
+export function dozerEnd(to: number, dir: 1 | -1): number {
+  return to - dir * (DOZER_HALF + BLADE);
+}
+
+/** One dozer run: get behind `from` with the blade up, then push toward `to`. */
+export function orderPush(sim: WreckSim, from: number, to: number): void {
+  const d = sim.state.dozer;
+  const dir: 1 | -1 = to >= from ? 1 : -1;
+  d.order = { phase: 'move', from, to, dir, t: 0, stuck: 0 };
+  d.travel = true;
+  d.bladeDown = false;
+  d.targetX = dozerStart(from, dir);
+  if (sim.state.tally.clockStart < 0) sim.state.tally.clockStart = sim.state.tick;
+}
+
+function runOrder(sim: WreckSim, d: Dozer): void {
+  const o = d.order;
+  if (!o) return;
+  o.t += DT;
+  const moving = Math.abs(d.speed) > 0.3;
+  o.stuck = moving ? 0 : o.stuck + DT;
+  if (o.phase === 'move') {
+    d.travel = true;
+    d.targetX = dozerStart(o.from, o.dir);
+    const there = Math.abs(d.targetX - d.x) < 0.05;
+    if (there || o.t > 8 || (o.stuck > 0.6 && o.t > 0.3)) {
+      o.phase = 'push';
+      o.t = 0;
+      o.stuck = 0;
+      d.travel = false;
+      d.dir = o.dir;
+      d.targetX = dozerEnd(o.to, o.dir);
+      d.root = sim.newRoot('dozer');
+    }
+    return;
+  }
+  // A run ends at its mark, or when the blade has been held up too long.
+  const there = Math.abs(d.targetX - d.x) < 0.05;
+  const giveUp = d.stall === 'structure' && sim.state.kit.ram ? 2.4 : 1;
+  if (there || o.t > 12 || (o.stuck > giveUp && o.t > 0.4)) {
+    d.order = undefined;
+    d.targetX = d.x;
+  }
 }
 
 /** Moves the blade forward by up to `step` (signed), pushing what is in front. Returns the step it managed. */
@@ -663,7 +816,8 @@ function push(sim: WreckSim, d: Dozer, step: number): number {
       d.ramTimer = 0.45;
       if (!d.root || s.time - d.lastRam > 4) d.root = sim.newRoot('dozer');
       d.lastRam = s.time;
-      sim.damageStanding(id, p.carriesOthers ? 55 : 70, d.root, 'impact', dir * 2, 0.5);
+      const ram = s.kit.ram ? 5 : 1;
+      sim.damageStanding(id, (p.carriesOthers ? 55 : 70) * ram, d.root, 'impact', dir * 2, 0.5);
       sim.emit({ type: 'ram', x: near, y: p.y + 0.8, piece: id, material: p.material });
     }
   }
@@ -673,7 +827,7 @@ function push(sim: WreckSim, d: Dozer, step: number): number {
   let heavy: Block | undefined;
   for (const b of train) {
     mass += b.mass;
-    if (b.mass > HEAVY_BLOCK && !heavy) heavy = b;
+    if (b.mass > s.kit.heavyPush && !heavy) heavy = b;
   }
   if (train.length && heavy) {
     const first = train[0] as Block;
@@ -684,7 +838,7 @@ function push(sim: WreckSim, d: Dozer, step: number): number {
     }
   } else if (train.length) {
     // Slower with the weight on the blade.
-    const slow = Math.max(0.55, 1 - mass / DOZER_PUSH_MAX / 2.2);
+    const slow = Math.max(0.55, 1 - mass / (DOZER_PUSH_MAX * (s.kit.heavyPush / HEAVY_BLOCK)) / 2.2);
     f1 = f0 + (f1 - f0) * slow;
     let face = f1;
     for (const b of train) {
@@ -697,7 +851,7 @@ function push(sim: WreckSim, d: Dozer, step: number): number {
   // Rubble: the blade scrapes to grade and drives the pile in front of it.
   // What it cannot carry spills over and is left behind for the next pass.
   const swept = takeRange(sim, dir > 0 ? f0 - 0.25 : f1, dir > 0 ? f1 : f0 + 0.25) + takeRange(sim, dir > 0 ? f0 : f0 - PILE_W, dir > 0 ? f0 + PILE_W : f0);
-  const carried = Math.min(swept, BLADE_CAP * 2);
+  const carried = Math.min(swept, s.kit.bladeCap);
   const spill = swept - carried;
   if (spill > 0) dropMound(sim, d.x - dir * (DOZER_HALF + 0.8), 1.6, spill);
   if (carried > 0) depositAhead(sim, f1, dir, carried);
@@ -820,7 +974,7 @@ export function stepSite(sim: WreckSim): void {
   const s = sim.state;
   const hm = s.heightmap;
   const cell = HEIGHTMAP.cell;
-  const L = SITE_LAYOUT;
+  const L = sim.h.site;
   for (const [a, b] of [
     [L.pitMin, L.pitMax],
     [L.padMin, L.padMax],
@@ -843,17 +997,7 @@ export function stepSite(sim: WreckSim): void {
     const inPad = b.x > L.padMin && b.x < L.padMax;
     if (!inPit && !inPad) continue;
     s.blocks.splice(i, 1);
-    if (b.kind === 'vault') {
-      s.tally.vaultSaved = inPad ? s.tally.vaultCondition : -2;
-      sim.emit({ type: 'salvage', x: b.x, y: b.y, kind: 'vault', value: inPad ? s.tally.vaultCondition : 0, where: inPad ? 'pad' : 'pit' });
-    } else if (b.kind === 'steel') {
-      if (inPad) s.tally.steelSalvaged += b.mass;
-      else s.tally.steelScrapped += b.mass;
-      sim.emit({ type: 'salvage', x: b.x, y: b.y, kind: 'steel', value: b.mass, where: inPad ? 'pad' : 'pit' });
-    } else {
-      s.tally.hauled += b.area;
-      sim.emit({ type: 'salvage', x: b.x, y: b.y, kind: 'slab', value: b.mass, where: inPad ? 'pad' : 'pit' });
-    }
+    bank(sim, b, inPad);
   }
   if (s.tick % 2 === 0) checkMachines(sim);
   if (s.tick % 6 === 0) {
@@ -867,11 +1011,200 @@ export function stepSite(sim: WreckSim): void {
   }
 }
 
+/** A block delivered to the pad (salvage) or the pit (hauled away). */
+function bank(sim: WreckSim, b: Block, inPad: boolean): void {
+  const s = sim.state;
+  const where = inPad ? 'pad' : 'pit';
+  if (b.kind === 'vault') {
+    s.tally.vaultSaved = inPad ? s.tally.vaultCondition : -2;
+    sim.emit({ type: 'salvage', x: b.x, y: b.y, kind: 'vault', value: inPad ? s.tally.vaultCondition : 0, where });
+  } else if (b.kind === 'steel') {
+    if (inPad) s.tally.steelSalvaged += b.mass;
+    else s.tally.steelScrapped += b.mass;
+    sim.emit({ type: 'salvage', x: b.x, y: b.y, kind: 'steel', value: b.mass, where });
+  } else {
+    s.tally.hauled += b.area;
+    sim.emit({ type: 'salvage', x: b.x, y: b.y, kind: 'slab', value: b.mass, where });
+  }
+}
+
+// ---------------------------------------------------------------- loader
+
+/** Bucket width for the current kit. */
+export function bucketWidth(kit: Kit): number {
+  return 2.4 + kit.bucket * 0.09;
+}
+
+/** Where a loaded bucket goes: valuables to the pad, rubble to the pit, whichever the loader can reach. */
+export function loaderDump(sim: WreckSim, fromX: number, valuable: boolean): { to: 'pad' | 'pit'; x: number } | undefined {
+  const L = sim.h.site;
+  const lim = travelLimits(sim, fromX, LOADER_HALF, 2);
+  const pad = { to: 'pad' as const, x: (L.padMin + L.padMax) / 2 };
+  const pit = { to: 'pit' as const, x: (L.pitMin + L.pitMax) / 2 };
+  const ok = (d: { x: number }): boolean => d.x - LOADER_REACH >= lim.min - 0.5 && d.x + LOADER_REACH <= lim.max + 0.5;
+  // Rubble goes to whichever is closer; the sorter pays for it on the pad.
+  const order = valuable || sim.state.kit.sorter ? [pad, pit] : Math.abs(fromX - pad.x) < Math.abs(fromX - pit.x) ? [pad, pit] : [pit, pad];
+  return order.find(ok);
+}
+
+/** What one scoop at x would take: the block it would lift (if any) and the rubble. */
+export function scoopAt(sim: WreckSim, x: number): { block?: Block; heavy?: Block; area: number } {
+  const s = sim.state;
+  const kit = s.kit;
+  const half = bucketWidth(kit) / 2;
+  const rank = (b: Block): number => (b.kind === 'vault' ? 0 : b.kind === 'steel' ? 1 : 2);
+  let block: Block | undefined;
+  let heavy: Block | undefined;
+  for (const b of s.blocks) {
+    if (b.x + b.w / 2 < x - half || b.x - b.w / 2 > x + half) continue;
+    if (b.mass > kit.lift) {
+      if (!heavy || b.mass > heavy.mass) heavy = b;
+      continue;
+    }
+    if (!block || rank(b) < rank(block) || (rank(b) === rank(block) && Math.abs(b.x - x) < Math.abs(block.x - x))) block = b;
+  }
+  const hm = s.heightmap;
+  const cell = HEIGHTMAP.cell;
+  let area = 0;
+  const i0 = Math.max(0, Math.ceil((x - half - HEIGHTMAP.minX) / cell));
+  const i1 = Math.min(hm.length - 1, Math.floor((x + half - HEIGHTMAP.minX) / cell));
+  for (let i = i0; i <= i1; i++) area += (hm[i] as number) * cell;
+  return { block, heavy, area: Math.min(area, kit.bucket) };
+}
+
+/** One loader trip: scoop at x, then carry it off. */
+export function orderLoader(sim: WreckSim, x: number): void {
+  const l = sim.state.loader;
+  l.targetX = x;
+  l.face = x >= l.x ? 1 : -1;
+  l.phase = 'go';
+  l.t = 0;
+  if (sim.state.tally.clockStart < 0) sim.state.tally.clockStart = sim.state.tick;
+}
+
+export function stepLoader(sim: WreckSim): void {
+  const s = sim.state;
+  const l = s.loader;
+  if (l.stunned > 0) {
+    l.stunned -= DT;
+    l.speed = 0;
+    return;
+  }
+  l.t += DT;
+  const drive = (centre: number, vmax: number): boolean => {
+    const lim = travelLimits(sim, l.x, LOADER_HALF, 2);
+    const goal = Math.max(lim.min, Math.min(lim.max, centre));
+    const dx = goal - l.x;
+    const step = Math.max(-vmax * DT, Math.min(vmax * DT, dx));
+    l.x += step;
+    l.speed = step / DT;
+    l.y += (groundUnder(sim, l.x, LOADER_HALF) - l.y) * 0.25;
+    return Math.abs(goal - l.x) < 0.05;
+  };
+  switch (l.phase) {
+    case 'idle':
+      l.speed = 0;
+      l.arm = Math.max(0, l.arm - DT * 2);
+      return;
+    case 'go': {
+      l.arm = Math.max(0, l.arm - DT * 2);
+      const there = drive(l.targetX - l.face * LOADER_REACH, 9);
+      if (there || l.t > 8) {
+        l.phase = 'scoop';
+        l.t = 0;
+      }
+      return;
+    }
+    case 'scoop': {
+      l.speed = 0;
+      if (l.t < 0.55) return;
+      const bx = l.x + l.face * LOADER_REACH;
+      const take = scoopAt(sim, bx);
+      if (take.block) {
+        const i = s.blocks.indexOf(take.block);
+        if (i >= 0) s.blocks.splice(i, 1);
+        l.carry = take.block;
+      }
+      l.bucket = take.area > 0 ? removeArea(sim, bx, bucketWidth(s.kit) / 2, take.area) : 0;
+      sim.emit({ type: 'scoop', x: bx, y: l.y + 0.6, area: l.bucket, block: l.carry?.kind ?? '' });
+      const dump = l.carry || l.bucket > 0.05 ? loaderDump(sim, l.x, !!l.carry && l.carry.kind !== 'slab') : undefined;
+      if (!dump) {
+        // Nothing worth carrying (or nowhere to take it): tip it back.
+        if (l.bucket > 0) dropMound(sim, bx, 1.2, l.bucket);
+        if (l.carry) s.blocks.push({ ...l.carry, x: bx, y: Math.max(0, heightAt(s.heightmap, bx)) });
+        l.bucket = 0;
+        l.carry = undefined;
+        l.phase = 'idle';
+        return;
+      }
+      l.dumpTo = dump.to;
+      l.dumpX = dump.x;
+      l.face = dump.x >= l.x ? 1 : -1;
+      l.phase = 'carry';
+      l.t = 0;
+      return;
+    }
+    case 'carry': {
+      l.arm = Math.min(1, l.arm + DT * 2);
+      const there = drive(l.dumpX - l.face * LOADER_REACH, 8);
+      if (there || l.t > 10) {
+        l.phase = 'dump';
+        l.t = 0;
+      }
+      return;
+    }
+    case 'dump': {
+      l.speed = 0;
+      if (l.t < 0.5) return;
+      const L = sim.h.site;
+      const bx = l.x + l.face * LOADER_REACH;
+      const inPad = bx > L.padMin - 1 && bx < L.padMax + 1;
+      const inPit = bx > L.pitMin - 1 && bx < L.pitMax + 1;
+      if (l.bucket > 0) {
+        if (inPad || inPit) {
+          s.tally.hauled += l.bucket;
+          if (inPad && s.kit.sorter) s.tally.recycled += l.bucket;
+        } else dropMound(sim, bx, 1.2, l.bucket);
+      }
+      if (l.carry) {
+        const b = { ...l.carry, x: bx };
+        if (inPad || inPit) bank(sim, b, inPad);
+        else s.blocks.push({ ...b, y: Math.max(0, heightAt(s.heightmap, bx)) });
+      }
+      sim.emit({ type: 'dump', x: bx, y: l.y + 2, area: l.bucket, where: inPad ? 'pad' : 'pit' });
+      l.loads += 1;
+      l.bucket = 0;
+      l.carry = undefined;
+      l.phase = 'idle';
+      return;
+    }
+  }
+}
+
+/** Takes up to `area` m² of rubble from around x (evenly, cell by cell). Returns what it took. */
+function removeArea(sim: WreckSim, x: number, half: number, area: number): number {
+  const hm = sim.state.heightmap;
+  const cell = HEIGHTMAP.cell;
+  const i0 = Math.max(0, Math.ceil((x - half - HEIGHTMAP.minX) / cell));
+  const i1 = Math.min(hm.length - 1, Math.floor((x + half - HEIGHTMAP.minX) / cell));
+  let have = 0;
+  for (let i = i0; i <= i1; i++) have += (hm[i] as number) * cell;
+  if (have <= 0) return 0;
+  const k = Math.min(1, area / have);
+  for (let i = i0; i <= i1; i++) hm[i] = (hm[i] as number) * (1 - k);
+  return have * k;
+}
+
+export function loaderBox(l: Loader): { x0: number; x1: number; y0: number; y1: number } {
+  return { x0: l.x - LOADER_HALF - (l.face < 0 ? 1.2 : 0), x1: l.x + LOADER_HALF + (l.face > 0 ? 1.2 : 0), y0: l.y, y1: l.y + 3.4 };
+}
+
 function checkMachines(sim: WreckSim): void {
   const s = sim.state;
-  const boxes: Array<{ m: 'excavator' | 'dozer'; box: { x0: number; x1: number; y0: number; y1: number }; stunned: number }> = [
+  const boxes: Array<{ m: 'excavator' | 'dozer' | 'loader'; box: { x0: number; x1: number; y0: number; y1: number }; stunned: number }> = [
     { m: 'excavator', box: excavatorBox(s.exc), stunned: s.exc.stunned },
     { m: 'dozer', box: dozerBox(s.dozer), stunned: s.dozer.stunned },
+    { m: 'loader', box: loaderBox(s.loader), stunned: s.loader.stunned },
   ];
   for (const b of s.bodies) {
     if (b.state !== 'moving' || b.mass < 3) continue;
@@ -896,7 +1229,8 @@ function checkMachines(sim: WreckSim): void {
       if (mb.m === 'excavator') {
         s.exc.stunned = 6;
         s.exc.biting = false;
-      } else s.dozer.stunned = 6;
+      } else if (mb.m === 'dozer') s.dozer.stunned = 6;
+      else s.loader.stunned = 6;
       s.tally.machineHits++;
       sim.emit({ type: 'machineHit', machine: mb.m, x: (x0 + x1) / 2, y: y1 });
     }
@@ -946,7 +1280,7 @@ export function vaultImpact(sim: WreckSim, x: number, energy: number): void {
 // --------------------------------------------------------------- helpers
 
 /** How far a machine centred at x with this half-length can travel before standing structure stops it. */
-function travelLimits(sim: WreckSim, x: number, half: number, height: number): { min: number; max: number } {
+export function travelLimits(sim: WreckSim, x: number, half: number, height: number): { min: number; max: number } {
   const s = sim.state;
   let min = -Infinity;
   let max = Infinity;

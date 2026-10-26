@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { planSwing } from '../src/wreck/autoplay';
+import { getContract } from '../src/data/contracts';
+import { kitFor } from '../src/data/fleet';
+import { crewMove } from '../src/game/crew';
+import { Job } from '../src/game/moves';
 import { solve } from '../src/wreck/solver';
 import { PIECE_GONE, PIECE_STANDING, WreckSim, craneHook, halden } from '../src/wreck/sim';
 import type { PieceDef } from '../src/wreck/structure';
@@ -131,13 +134,15 @@ describe('wrecking ball simulation', () => {
   });
 
   it('can be brought down by a player who aims for the loaded columns', () => {
-    const sim = new WreckSim();
-    for (let i = 0; i < 18 && sim.standingFraction > 0.12; i++) {
-      const plan = planSwing(sim);
+    const job = new Job({ ...getContract('halden'), budgets: { ball: 18 } }, ['ball'], H, kitFor([]));
+    for (let i = 0; i < 18 && job.sim.standingFraction > 0.12; i++) {
+      job.settle();
+      const plan = crewMove(job);
       if (!plan) break;
-      swing(sim, plan.hx, plan.hy, plan.px, plan.py, 4);
-      for (let t = 0; t < 1200 && sim.state.quietFor < 1; t++) sim.step();
+      job.commit(plan);
     }
+    job.settle();
+    const sim = job.sim;
     expect(sim.standingFraction).toBeLessThan(0.12);
     const decisive = sim.decisiveSwing();
     expect(decisive?.mass).toBeGreaterThan(H.def.totalMass * 0.15);
