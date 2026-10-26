@@ -38,6 +38,7 @@ export function jobsScreen(app: App): ScreenInstance {
           { class: 'job-info' },
           h('div', { class: 'job-top' }, h('span', { class: 'job-no', text: c.number }), status === 'next' ? h('span', { class: 'tag go', text: done ? 'Replay' : 'Next' }) : done ? h('span', { class: 'tag', text: 'Done' }) : null),
           h('h3', { text: c.title }),
+          h('p', { class: 'job-headline', text: b.incident.headline }),
           h('p', { class: 'job-kind', text: `${b.kind} · ${c.client}` }),
           h(
             'div',
@@ -50,6 +51,6 @@ export function jobsScreen(app: App): ScreenInstance {
     );
     list.append(card);
   }
-  const el = h('main', { class: 'screen page jobs' }, screenHeader(app, 'Contracts', true), h('p', { class: 'page-lede', text: 'Each job is a different building with a different problem. Finish one to open the next; replay any of them for salvage and stars.' }), list);
+  const el = h('main', { class: 'screen page jobs' }, screenHeader(app, 'Call-outs', true), h('p', { class: 'page-lede', text: 'Every fight leaves a mess. Each call-out is a different building, a different disaster and a different way to bring it down. Finish one to open the next; replay any of them for salvage and stars.' }), list);
   return { el };
 }

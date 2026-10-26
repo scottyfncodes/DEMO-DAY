@@ -45,6 +45,10 @@ export class WreckFx {
   private dustCount = 0;
   private dustSprites: HTMLCanvasElement[] = [];
 
+  /** Shockwave rings and fireballs: the over-the-top layer. */
+  private rings: Array<{ x: number; y: number; r: number; max: number; life: number; total: number; hot: boolean }> = [];
+  private fire: Array<{ x: number; y: number; vx: number; vy: number; r: number; life: number; total: number }> = [];
+
   shake = 0;
   punch = 0;
   /** Brief white-out of the impact point for the biggest hits (0..1). */
@@ -72,7 +76,24 @@ export class WreckFx {
     }
   }
 
+  ring(x: number, y: number, max: number, life = 0.6, hot = false): void {
+    if (this.rings.length > 12) this.rings.shift();
+    this.rings.push({ x, y, r: 0.4, max, life, total: life, hot });
+  }
+
+  fireball(x: number, y: number, size: number): void {
+    const n = Math.round(10 * this.quality * size);
+    for (let i = 0; i < n && this.fire.length < 80; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 1 + Math.random() * 5 * size;
+      const life = 0.5 + Math.random() * 0.5;
+      this.fire.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp + 2, r: (0.6 + Math.random() * 1.2) * size, life, total: life });
+    }
+  }
+
   clear(): void {
+    this.rings = [];
+    this.fire = [];
     this.chunkCount = 0;
     this.dustCount = 0;
     this.shake = 0;
@@ -158,6 +179,7 @@ export class WreckFx {
       switch (e.type) {
         case 'hit': {
           const k = Math.min(1, e.energy / 700);
+          if (k > 0.35) this.ring(e.x, e.y, 2 + k * 5, 0.35);
           this.shake = Math.max(this.shake, 0.25 + k * 0.9);
           this.punch = Math.max(this.punch, 0.02 + k * 0.05);
           if (k > 0.45) {
@@ -207,6 +229,9 @@ export class WreckFx {
         case 'blast': {
           // A cutter is a sharp bright cut; a blast charge throws a ring of dust and grit.
           const big = e.kind === 'blast';
+          this.ring(e.x, e.y, big ? 11 : 7, 0.55, true);
+          this.ring(e.x, e.y, big ? 18 : 11, 0.9);
+          this.fireball(e.x, e.y, big ? 1.6 : 1.1);
           this.shake = Math.max(this.shake, big ? 1.3 : 0.9);
           this.punch = Math.max(this.punch, big ? 0.07 : 0.05);
           this.flash = 1;
@@ -265,6 +290,7 @@ export class WreckFx {
         }
         case 'land': {
           const k = Math.min(1, e.mass / 500);
+          if (e.mass > 60) this.ring(e.x, Math.max(0.5, e.y), 4 + Math.sqrt(e.mass) * 0.6, 0.7);
           this.shake = Math.max(this.shake, 0.3 + k * 1.1);
           this.punch = Math.max(this.punch, k * 0.04);
           const spread = 2 + Math.sqrt(e.mass) * 0.35;
@@ -335,6 +361,22 @@ export class WreckFx {
       const f = d.x + d.dir * 3.25;
       this.dust(f + d.dir * (0.5 + Math.random() * 2), heightAt(hm, f + d.dir) + 0.4, 0.7 + Math.random() * 0.6, d.dir * 0.8, 0.3, 2.5, 0.35, 0.7);
     }
+    for (let i = this.rings.length - 1; i >= 0; i--) {
+      const r = this.rings[i] as (typeof this.rings)[number];
+      r.life -= dt;
+      r.r += (r.max - r.r) * Math.min(1, dt * 7);
+      if (r.life <= 0) this.rings.splice(i, 1);
+    }
+    for (let i = this.fire.length - 1; i >= 0; i--) {
+      const f = this.fire[i] as (typeof this.fire)[number];
+      f.life -= dt;
+      f.vx *= 1 - dt * 2.5;
+      f.vy = f.vy * (1 - dt * 2.5) + dt * 3;
+      f.x += f.vx * dt;
+      f.y += f.vy * dt;
+      f.r += dt * 1.5;
+      if (f.life <= 0) this.fire.splice(i, 1);
+    }
     const decay = this.reducedMotion ? 10 : 3.2;
     this.shake = Math.max(0, this.shake - dt * decay);
     this.punch = Math.max(0, this.punch - dt * 0.35);
@@ -369,6 +411,33 @@ export class WreckFx {
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+  }
+
+  /** Shockwaves and fireballs, drawn over the dust. */
+  drawBlast(ctx: CanvasRenderingContext2D): void {
+    for (const r of this.rings) {
+      const k = r.life / r.total;
+      ctx.strokeStyle = r.hot ? `rgba(255,214,120,${k * 0.9})` : `rgba(255,255,255,${k * 0.6})`;
+      ctx.lineWidth = 0.15 + k * 0.5;
+      ctx.beginPath();
+      ctx.ellipse(r.x, r.y, r.r, r.r * 0.8, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    if (!this.fire.length) return;
+    const prev = ctx.globalCompositeOperation;
+    ctx.globalCompositeOperation = 'lighter';
+    for (const f of this.fire) {
+      const k = f.life / f.total;
+      const g = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, f.r);
+      g.addColorStop(0, `rgba(255,246,200,${k * 0.9})`);
+      g.addColorStop(0.4, `rgba(255,150,40,${k * 0.7})`);
+      g.addColorStop(1, 'rgba(200,40,10,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = prev;
   }
 
   drawDust(ctx: CanvasRenderingContext2D): void {

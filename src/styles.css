@@ -1934,3 +1934,174 @@ p {
     padding: 0 10px;
   }
 }
+
+/* --------------------------------------------------- mayhem and theme */
+
+.mayhem-banner {
+  position: absolute;
+  left: 50%;
+  top: 34%;
+  transform: translate(-50%, -50%) rotate(-4deg) scale(0.6);
+  opacity: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 26px 12px;
+  background: var(--safety);
+  color: #151515;
+  border: 4px solid #151515;
+  box-shadow: 8px 8px 0 #151515;
+  text-align: center;
+  z-index: 8;
+  white-space: nowrap;
+}
+
+.mayhem-banner b {
+  font-family: var(--head);
+  font-weight: 900;
+  font-size: clamp(26px, 8vw, 46px);
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+
+.mayhem-banner span {
+  font-family: var(--head);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #a3251b;
+}
+
+.mayhem-banner.show {
+  animation: banner-slam 1.9s cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
+}
+
+@keyframes banner-slam {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(-12deg) scale(2.2);
+  }
+  12% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(-4deg) scale(0.95);
+  }
+  20% {
+    transform: translate(-50%, -50%) rotate(-4deg) scale(1.05);
+  }
+  80% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(-4deg) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -60%) rotate(-4deg) scale(1);
+  }
+}
+
+.reduced-motion .mayhem-banner.show {
+  animation: banner-fade 1.6s linear forwards;
+}
+
+@keyframes banner-fade {
+  0%,
+  85% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(-4deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotate(-4deg);
+  }
+}
+
+.title-stamp {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 4px 12px;
+  border: 3px solid #e2392b;
+  color: #e2392b;
+  background: rgba(255, 248, 233, 0.92);
+  font-family: var(--head);
+  font-weight: 900;
+  font-size: 15px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transform: rotate(-3deg);
+}
+
+.incident {
+  position: relative;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  border-radius: var(--r);
+  background: #f3ead7;
+  color: #1d1a16;
+  box-shadow: 4px 4px 0 #151515;
+}
+
+.incident .eyebrow {
+  font-family: var(--head);
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #a3251b;
+}
+
+.incident h3 {
+  font-size: 23px;
+  margin: 4px 0 6px;
+}
+
+.incident p {
+  font-size: 14px;
+}
+
+.cause-tag {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 2px 8px;
+  border: 2px solid currentColor;
+  font-family: var(--head);
+  font-weight: 900;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transform: rotate(4deg);
+}
+
+.cause-tag.kaiju {
+  color: #2b7a55;
+}
+
+.cause-tag.hero {
+  color: #c8342a;
+}
+
+.cause-tag.villain {
+  color: #2a6fa3;
+}
+
+.cause-tag.mech {
+  color: #5b6772;
+}
+
+.job-headline {
+  font-size: 13px;
+  font-style: italic;
+  color: var(--safety-hi);
+  line-height: 1.25;
+}
+
+.results .invoice-head {
+  font-family: var(--head);
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #e2392b;
+  font-size: 14px;
+}

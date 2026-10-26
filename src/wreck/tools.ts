@@ -111,7 +111,7 @@ export interface Loader {
   loads: number;
 }
 
-export type BlockKind = 'slab' | 'steel' | 'vault';
+export type BlockKind = 'slab' | 'steel' | 'vault' | 'relic';
 
 export interface Block {
   id: number;
@@ -128,6 +128,9 @@ export interface Block {
   /** Rubble area it turns into when broken or counted for clearance. */
   area: number;
   seed: number;
+  /** Relics: how it looks and what it pays on the pad. */
+  look?: string;
+  value?: number;
 }
 
 export interface Tally {
@@ -149,6 +152,10 @@ export interface Tally {
   clockStart: number;
   /** Rubble the loader brought to the pad with the scrap sorter fitted (m²). */
   recycled: number;
+  /** Relics banked on the pad: their total value, and how many went in the pit instead. */
+  relicValue: number;
+  relicsSaved: number;
+  relicsLost: number;
 }
 
 /** Truss-heavy and steel pieces leave salvage; core walls leave slabs too heavy for the dozer. */
@@ -213,7 +220,7 @@ export function initialMachines(site: SiteLayout, kit: Kit): { exc: Excavator; d
 }
 
 export function emptyTally(): Tally {
-  return { hauled: 0, steelSalvaged: 0, steelScrapped: 0, vaultSaved: -1, vaultCondition: 1, chargesFired: 0, ballFired: 0, debrisFired: 0, chainFired: 0, flawsExploited: 0, machineHits: 0, bites: 0, clockStart: -1, recycled: 0 };
+  return { hauled: 0, steelSalvaged: 0, steelScrapped: 0, vaultSaved: -1, vaultCondition: 1, chargesFired: 0, ballFired: 0, debrisFired: 0, chainFired: 0, flawsExploited: 0, machineHits: 0, bites: 0, clockStart: -1, recycled: 0, relicValue: 0, relicsSaved: 0, relicsLost: 0 };
 }
 
 // --------------------------------------------------------------- geometry
@@ -638,6 +645,11 @@ function bite(sim: WreckSim): void {
     sim.emit({ type: 'bite', x: jx, y: jy, piece: -1, material: 'steel', target: 'vault' });
     return;
   }
+  if (hit?.kind === 'relic') {
+    // Hero-grade materials: the jaws just skid off.
+    sim.emit({ type: 'bite', x: jx, y: jy, piece: -1, material: 'steel', target: 'relic' });
+    return;
+  }
   if (hit) {
     hit.hp -= s.kit.bite * biteMult(sim, hit.material) * (s.kit.shears ? 1.6 : 1);
     sim.emit({ type: 'bite', x: jx, y: jy, piece: -1, material: hit.material, target: 'block' });
@@ -672,6 +684,7 @@ function pieceInBody(sim: WreckSim, b: Body, x: number, y: number, r: number): n
 /** A broken block becomes two halves the dozer can push, or loose rubble. */
 export function breakBlock(sim: WreckSim, blk: Block): void {
   const s = sim.state;
+  if (blk.kind === 'relic') return;
   const i = s.blocks.indexOf(blk);
   if (i < 0) return;
   s.blocks.splice(i, 1);
@@ -1015,7 +1028,13 @@ export function stepSite(sim: WreckSim): void {
 function bank(sim: WreckSim, b: Block, inPad: boolean): void {
   const s = sim.state;
   const where = inPad ? 'pad' : 'pit';
-  if (b.kind === 'vault') {
+  if (b.kind === 'relic') {
+    if (inPad) {
+      s.tally.relicValue += b.value ?? 0;
+      s.tally.relicsSaved += 1;
+    } else s.tally.relicsLost += 1;
+    sim.emit({ type: 'salvage', x: b.x, y: b.y, kind: 'relic', value: inPad ? (b.value ?? 0) : 0, where });
+  } else if (b.kind === 'vault') {
     s.tally.vaultSaved = inPad ? s.tally.vaultCondition : -2;
     sim.emit({ type: 'salvage', x: b.x, y: b.y, kind: 'vault', value: inPad ? s.tally.vaultCondition : 0, where });
   } else if (b.kind === 'steel') {
@@ -1052,7 +1071,7 @@ export function scoopAt(sim: WreckSim, x: number): { block?: Block; heavy?: Bloc
   const s = sim.state;
   const kit = s.kit;
   const half = bucketWidth(kit) / 2;
-  const rank = (b: Block): number => (b.kind === 'vault' ? 0 : b.kind === 'steel' ? 1 : 2);
+  const rank = (b: Block): number => (b.kind === 'vault' ? 0 : b.kind === 'relic' ? 0.5 : b.kind === 'steel' ? 1 : 2);
   let block: Block | undefined;
   let heavy: Block | undefined;
   for (const b of s.blocks) {
@@ -1206,6 +1225,8 @@ function checkMachines(sim: WreckSim): void {
     { m: 'dozer', box: dozerBox(s.dozer), stunned: s.dozer.stunned },
     { m: 'loader', box: loaderBox(s.loader), stunned: s.loader.stunned },
   ];
+  const off = s.offsite ?? [];
+  for (let i = boxes.length - 1; i >= 0; i--) if (off.includes((boxes[i] as { m: string }).m)) boxes.splice(i, 1);
   for (const b of s.bodies) {
     if (b.state !== 'moving' || b.mass < 3) continue;
     const speed = Math.hypot(b.vx, b.vy);

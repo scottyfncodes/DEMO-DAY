@@ -93,7 +93,14 @@ export function briefScreen(app: App, params: Record<string, string>): ScreenIns
     screenHeader(app, `Job ${c.number}`, true, () => app.go('jobs')),
     h('div', { class: 'brief-hero' }, thumbnail(c.building, Math.min(560, window.innerWidth - 32), 210, 'hero-thumb')),
     h('section', { class: 'brief-title' }, h('h1', { text: c.title }), h('p', { class: 'muted', text: `${b.kind} for ${c.client}` })),
-    h('p', { class: 'brief-text', text: c.brief }),
+    h(
+      'section',
+      { class: 'incident' },
+      h('span', { class: `cause-tag ${b.incident.cause}`, text: b.incident.cause }),
+      h('p', { class: 'eyebrow', text: 'Incident report' }),
+      h('h3', { text: b.incident.headline }),
+      h('p', { text: c.brief }),
+    ),
     h('aside', { class: 'site-note' }, h('b', { text: 'Site note' }), h('span', { text: c.tip })),
     h('section', { class: 'card' }, h('h3', { text: 'To get paid' }), objectives, h('p', { class: 'pay-line' }, done ? `Fee paid on your first completion. Replays pay salvage and moves to spare. Best so far ${formatMoney(rec?.bestPayout ?? 0)}.` : `Contract fee ${formatMoney(c.fee)}, plus bonuses and salvage.`)),
     h(

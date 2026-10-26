@@ -1,13 +1,14 @@
 import type { MachineId } from '../data/fleet';
 import type { MovePlan } from '../game/moves';
 import type { Camera } from './camera';
-import type { Setting } from '../wreck/buildings';
+import type { BuildingDef as Building, Setting } from '../wreck/buildings';
 import type { WreckFx } from '../wreck/fx';
 import { GROUND, type PieceDef } from '../wreck/structure';
 import { HEIGHTMAP, PIECE_FALLING, PIECE_STANDING, heightAt, type Body, type Halden, type WreckSim } from '../wreck/sim';
 import { FLAW_SHOWN, chargePos, type Block } from '../wreck/tools';
 import { baseColor, drawDamage, drawFacade, styleFor, topColor, type Style } from './facade';
 import { drawBall, drawCrane, drawDozer, drawExcavator, drawLoader, drawTruck } from './machines';
+import { drawEgg, drawFires, drawHelicopter, drawHorizonEvent, drawRelic, drawScars } from './mayhem';
 import { FONT, KX, KY, box, hash, mix, prism, px, py, rotRect, shade, worldText, type Ctx } from './paint';
 
 /**
@@ -22,7 +23,7 @@ export interface Floater {
   x: number;
   y: number;
   born: number;
-  tone: 'gold' | 'white' | 'red' | 'green';
+  tone: 'gold' | 'white' | 'red' | 'green' | 'comic';
   big?: boolean;
 }
 
@@ -150,7 +151,7 @@ export class SceneRenderer {
       this.treadsFor = sim;
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.drawSky(ctx, cam, pal, b.setting, D);
+    this.drawSky(ctx, cam, pal, b.setting, D, opt.time, b.incident.cause);
     ctx.setTransform(s * dpr, 0, 0, -s * dpr, o.x * dpr, o.y * dpr);
     const view = {
       minX: cam.screenToWorld(0, 0).x - 30,
@@ -168,6 +169,8 @@ export class SceneRenderer {
     this.drawWreck(ctx, sim, st, D, s);
     this.drawBlocks(ctx, sim, D, opt.time);
     this.drawStanding(ctx, sim, st, D, s, opt);
+    drawScars(ctx, sim, b.incident, D, opt.time);
+    drawFires(ctx, sim, b.incident.fires, D, opt.time);
     for (const body of sim.state.bodies) if (body.state !== 'rubble') this.drawBody(ctx, sim, body, st, D, s);
     if (site) {
       const on = (m: MachineId): boolean => !opt.machines || opt.machines.includes(m);
@@ -186,6 +189,7 @@ export class SceneRenderer {
     fx.drawChunks(ctx, s);
     fx.drawDust(ctx);
     ctx.restore();
+    fx.drawBlast(ctx);
     if (fx.flash > 0) {
       ctx.globalAlpha = fx.flash * 0.6;
       ctx.fillStyle = '#fff6e0';
@@ -233,7 +237,7 @@ export class SceneRenderer {
     return list;
   }
 
-  private drawSky(ctx: Ctx, cam: Camera, pal: Palette, setting: Setting, D: number): void {
+  private drawSky(ctx: Ctx, cam: Camera, pal: Palette, setting: Setting, D: number, time: number, cause: Building['incident']['cause']): void {
     const horizon = cam.worldToScreen(0, (D + 16) * KY).y;
     const g = ctx.createLinearGradient(0, 0, 0, Math.max(horizon, 40));
     g.addColorStop(0, pal.skyTop);
@@ -250,6 +254,10 @@ export class SceneRenderer {
     ctx.fillStyle = sg;
     ctx.fillRect(0, 0, this.width, this.height);
     for (const layer of [0, 1]) {
+      if (layer === 1) {
+        drawHorizonEvent(ctx, cause, this.width, horizon, cam.drawScale * 0.32, time);
+        drawHelicopter(ctx, this.width, horizon, time);
+      }
       const k = layer === 0 ? 0.32 : 0.55;
       const scale = cam.drawScale * k;
       const cx = this.width / 2 - cam.x * scale;
@@ -907,6 +915,10 @@ export class SceneRenderer {
         this.prize(ctx, sim, b, D, time);
         continue;
       }
+      if (b.kind === 'relic') {
+        drawRelic(ctx, b, D, time);
+        continue;
+      }
       const z0 = D * 0.25;
       const z1 = z0 + Math.min(D * 0.6, b.w * 0.9);
       const heavy = b.mass > sim.state.kit.heavyPush;
@@ -933,7 +945,9 @@ export class SceneRenderer {
     const look = sim.h.building.prize?.look ?? 'safe';
     const z0 = D * 0.3;
     const glow = 0.5 + Math.sin(time * 4) * 0.5;
-    if (look === 'bell') {
+    if (look === 'egg') {
+      drawEgg(ctx, b, D, time);
+    } else if (look === 'bell') {
       prism(ctx, [b.x - b.w / 2, b.y, b.x + b.w / 2, b.y, b.x + b.w * 0.32, b.y + b.h * 0.75, b.x, b.y + b.h, b.x - b.w * 0.32, b.y + b.h * 0.75], z0, z0 + b.w, { front: '#b8873a', top: '#d4a457' });
     } else {
       box(ctx, b.x - b.w / 2, b.y, b.w, b.h, z0, z0 + b.w * 0.9, { front: '#3c4449' });
@@ -999,6 +1013,10 @@ export class SceneRenderer {
       const age = (now - f.born) / 1000;
       if (age > 1.8) continue;
       const q = cam.worldToScreen(f.x, f.y);
+      if (f.tone === 'comic') {
+        this.comicBurst(ctx, f.text, q.x, q.y, age, f.big ? 1.25 : 0.9, f.born);
+        continue;
+      }
       const a = age < 1.2 ? 1 : 1 - (age - 1.2) / 0.6;
       const size = f.big ? 26 : 17;
       ctx.font = `800 ${size}px ${FONT}`;
@@ -1011,6 +1029,49 @@ export class SceneRenderer {
       ctx.fillText(f.text, q.x, y);
     }
     ctx.globalAlpha = 1;
+  }
+
+  /** A comic-book sound effect: a jagged burst, a fat outlined word, a pop and a fade. */
+  private comicBurst(ctx: Ctx, text: string, x: number, y: number, age: number, size: number, seed: number): void {
+    if (age > 1.1) return;
+    const pop = age < 0.09 ? (age / 0.09) * 1.35 : age < 0.2 ? 1.35 - ((age - 0.09) / 0.11) * 0.35 : 1;
+    const fade = age < 0.8 ? 1 : 1 - (age - 0.8) / 0.3;
+    const s = pop * size;
+    const rot = ((seed % 13) - 6) * 0.025;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, fade);
+    ctx.translate(x, y - 30 - age * 10);
+    ctx.rotate(rot);
+    ctx.scale(s, s);
+    ctx.font = `900 34px ${FONT}`;
+    const w = ctx.measureText(text).width;
+    const rx = w / 2 + 26;
+    const ry = 34;
+    ctx.beginPath();
+    const spikes = 14;
+    for (let i = 0; i < spikes * 2; i++) {
+      const a = (i / (spikes * 2)) * Math.PI * 2;
+      const r = i % 2 === 0 ? 1 : 0.72 + ((seed >> i) & 3) * 0.04;
+      const px2 = Math.cos(a) * rx * r;
+      const py2 = Math.sin(a) * ry * r;
+      if (i === 0) ctx.moveTo(px2, py2);
+      else ctx.lineTo(px2, py2);
+    }
+    ctx.closePath();
+    ctx.fillStyle = '#ffd23f';
+    ctx.fill();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#151515';
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 7;
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#151515';
+    ctx.strokeText(text, 0, 2);
+    ctx.fillStyle = '#e2392b';
+    ctx.fillText(text, 0, 2);
+    ctx.restore();
   }
 
   private outline(ctx: Ctx, sim: WreckSim, id: number, D: number, color: string, width: number): void {

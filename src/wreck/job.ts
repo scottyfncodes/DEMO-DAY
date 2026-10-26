@@ -21,6 +21,7 @@ export interface SiteStatus {
   /** Rubble on the neighbour's side of the line (m²). */
   collateral: number;
   steelSalvaged: number;
+  relicsSaved: number;
 }
 
 /** Rubble-equivalent of everything still on the lot: standing parts, sections, heaps and blocks. */
@@ -91,6 +92,7 @@ export function siteStatus(sim: WreckSim): SiteStatus {
     vaultCondition: sim.state.tally.vaultCondition,
     collateral: collateral(sim),
     steelSalvaged: sim.state.tally.steelSalvaged,
+    relicsSaved: sim.state.tally.relicsSaved,
   };
 }
 

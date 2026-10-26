@@ -54,7 +54,7 @@ export interface PrizeDef {
   label: string;
   /** The ground-floor piece it sits behind: safe from falling debris while that stands. */
   home: string;
-  look: 'safe' | 'bell';
+  look: 'safe' | 'bell' | 'egg';
   w: number;
   h: number;
   mass: number;
@@ -64,6 +64,41 @@ export interface PrizeDef {
 
 export type Setting = 'town' | 'suburb' | 'farm' | 'yard' | 'wharf' | 'city';
 export type NeighbourLook = 'bakery' | 'house' | 'farmhouse' | 'pumphouse' | 'tyres' | 'chandlery' | 'office';
+
+export type RelicLook = 'shield' | 'mech-arm' | 'plating' | 'freeze-ray' | 'tentacle' | 'tooth' | 'helmet' | 'scale' | 'claw' | 'core';
+
+/** Something the fight left behind: worth a lot to the right buyer, if it reaches the salvage pad. */
+export interface RelicDef {
+  label: string;
+  look: RelicLook;
+  x: number;
+  w: number;
+  h: number;
+  mass: number;
+  value: number;
+}
+
+export type Scar = 'crater' | 'mech-arm' | 'ice' | 'tentacle' | 'bite' | 'laser' | 'footprint' | 'claw-marks';
+
+/** What happened here before the crew arrived. */
+export interface IncidentDef {
+  /** Headline on the incident report. */
+  headline: string;
+  /** Who did it: hero, villain, kaiju or mech. */
+  cause: 'hero' | 'villain' | 'kaiju' | 'mech';
+  /** Parts already gone. */
+  gone: string[];
+  /** Parts already damaged: label and the share of strength lost. */
+  damaged: Array<[string, number]>;
+  /** Parts on fire (drawn burning while they stand). */
+  fires: string[];
+  /** Debris already on the lot: x and area (m²). */
+  debris: Array<[number, number]>;
+  relics: RelicDef[];
+  scar: Scar;
+  /** Every piece starts this much weaker (frozen, scorched). */
+  brittle?: number;
+}
 
 export interface BuildingDef {
   id: string;
@@ -80,6 +115,7 @@ export interface BuildingDef {
   setting: Setting;
   /** Lettering on the building, drawn on its sign piece. */
   sign?: string;
+  incident: IncidentDef;
 }
 
 // ------------------------------------------------------------------ frame
@@ -530,6 +566,16 @@ export const BUILDINGS: BuildingDef[] = [
     site: { padMin: -15, padMax: -8, pitMin: 19, pitMax: 25, lotMin: -4, lotMax: 17, neighbourX: 29, boom: 24, craneX: -22, dozerX: -13, excX: 18, loaderX: -18 },
     flaws: [{ label: 'Column B · floor 1', note: 'cracked brick pier', known: true }],
     neighbour: { name: 'the laundromat', look: 'bakery', w: 10, h: 7 },
+    incident: {
+      headline: 'Captain Volt landed on it. Twice.',
+      cause: 'hero',
+      gone: ['Roof B–C', 'Window bay A–B · floor 2'],
+      damaged: [['Column B · floor 1', 0.45], ['Brick bay B–C · floor 2', 0.5]],
+      fires: ['Brick bay B–C · floor 2'],
+      debris: [[11, 2.5], [5, 1.5]],
+      relics: [{ label: 'Volt’s dented shield', look: 'shield', x: -2.5, w: 1.7, h: 0.35, mass: 1.2, value: 2500 }],
+      scar: 'crater',
+    },
   },
   {
     id: 'garage',
@@ -545,6 +591,19 @@ export const BUILDINGS: BuildingDef[] = [
       { label: 'Column E · floor 1', note: 'impact-bent flange', known: false },
     ],
     neighbour: { name: 'the tyre shop', look: 'tyres', w: 12, h: 6 },
+    incident: {
+      headline: 'TITAN-9 lost an arm here. It is still in the roof.',
+      cause: 'mech',
+      gone: ['Roof D–E', 'Window bay D–E · floor 1'],
+      damaged: [['Column E · floor 1', 0.4], ['Roof truss D–E · floor 2', 0.5]],
+      fires: ['Roller door B–C · floor 1'],
+      debris: [[22, 2], [26, 1.5]],
+      relics: [
+        { label: 'Mech forearm', look: 'mech-arm', x: 27, w: 4.2, h: 1.6, mass: 5, value: 4000 },
+        { label: 'Mech plating', look: 'plating', x: -2, w: 2.4, h: 0.6, mass: 3, value: 2000 },
+      ],
+      scar: 'mech-arm',
+    },
   },
   {
     id: 'house',
@@ -557,6 +616,17 @@ export const BUILDINGS: BuildingDef[] = [
     flaws: [{ label: 'Chimney · course 1', note: 'crumbling mortar', known: true }],
     prize: { label: 'Old floor safe', home: 'Clapboard bay B–C · floor 1', look: 'safe', w: 1.2, h: 1.2, mass: 4, value: 6000 },
     neighbour: { name: 'No. 14', look: 'house', w: 11, h: 8 },
+    incident: {
+      headline: 'Frostbyte froze Maple Street solid.',
+      cause: 'villain',
+      gone: ['Window bay A–B · floor 1'],
+      damaged: [['Column A · floor 1', 0.3]],
+      fires: [],
+      debris: [[2, 1]],
+      relics: [{ label: 'Freeze ray', look: 'freeze-ray', x: 15, w: 1.8, h: 0.8, mass: 0.8, value: 3000 }],
+      scar: 'ice',
+      brittle: 0.35,
+    },
   },
   {
     id: 'silo',
@@ -571,6 +641,19 @@ export const BUILDINGS: BuildingDef[] = [
       { label: 'Silo wall A–B · floor 2', note: 'delaminated pour', known: false },
     ],
     neighbour: { name: 'the farmhouse', look: 'farmhouse', w: 11, h: 9 },
+    incident: {
+      headline: 'Gorrath let go of the silo. Most of Gorrath did.',
+      cause: 'kaiju',
+      gone: ['Shed Roof B–C'],
+      damaged: [['Silo wall B–C · floor 4', 0.55], ['Silo wall A–B · floor 5', 0.4]],
+      fires: ['Shed Clapboard bay A–B · floor 1'],
+      debris: [[-14, 2.5]],
+      relics: [
+        { label: 'Tentacle segment', look: 'tentacle', x: -21, w: 5.5, h: 1.6, mass: 16, value: 6000 },
+        { label: 'Tentacle tip', look: 'tentacle', x: -28, w: 3, h: 1, mass: 5, value: 3000 },
+      ],
+      scar: 'tentacle',
+    },
   },
   {
     id: 'stack',
@@ -585,6 +668,16 @@ export const BUILDINGS: BuildingDef[] = [
       { label: 'Stack A–B · floor 3', note: 'frost-split courses', known: false },
     ],
     neighbour: { name: 'the pump house', look: 'pumphouse', w: 9, h: 7 },
+    incident: {
+      headline: 'Gorrath used the stack to pick its teeth.',
+      cause: 'kaiju',
+      gone: ['Column A · floor 12', 'Column B · floor 12', 'Stack A–B · floor 12', 'Roof A–B', 'Boiler house Roof B–C'],
+      damaged: [['Stack A–B · floor 10', 0.5], ['Column B · floor 11', 0.4]],
+      fires: ['Boiler house Brick bay C–D · floor 1', 'Boiler house Roller door B–C · floor 1'],
+      debris: [[-7, 2], [-20, 1.5]],
+      relics: [{ label: 'Kaiju tooth', look: 'tooth', x: -34, w: 1.4, h: 3, mass: 4, value: 5000 }],
+      scar: 'bite',
+    },
   },
   {
     id: 'warehouse',
@@ -602,6 +695,16 @@ export const BUILDINGS: BuildingDef[] = [
     ],
     prize: { label: 'Ship’s bell', home: 'Core wall D–E · floor 1', look: 'bell', w: 1.3, h: 1.5, mass: 2, value: 9000 },
     neighbour: { name: 'the chandlery', look: 'chandlery', w: 12, h: 9 },
+    incident: {
+      headline: 'Captain Volt threw the Scrapper through the second floor.',
+      cause: 'hero',
+      gone: ['Brick bay B–C · floor 2', 'Brick bay B–C · floor 3'],
+      damaged: [['Column C · floor 2', 0.35], ['Floor 3 slab B–C', 0.4]],
+      fires: ['Brick bay E–F · floor 3', 'Brick bay A–B · floor 4'],
+      debris: [[8, 3], [30, 2]],
+      relics: [{ label: 'The Scrapper’s helmet', look: 'helmet', x: 35.5, w: 1.8, h: 1.6, mass: 6, value: 5000 }],
+      scar: 'laser',
+    },
   },
   {
     id: 'parkade',
@@ -616,6 +719,19 @@ export const BUILDINGS: BuildingDef[] = [
       { label: 'Column E · floor 2', note: 'punching crack', known: false },
     ],
     neighbour: { name: 'the office block', look: 'office', w: 14, h: 16 },
+    incident: {
+      headline: 'Gorrath sat on it. For about an hour.',
+      cause: 'kaiju',
+      gone: ['Roof C–D', 'Roof D–E', 'Parapet C–D · floor 5', 'Parapet D–E · floor 5', 'Lamp post 3'],
+      damaged: [['Column D · floor 5', 0.45], ['Column D · floor 4', 0.3], ['Floor 5 slab C–D', 0.35]],
+      fires: [],
+      debris: [[17, 3], [24, 2.5]],
+      relics: [
+        { label: 'Kaiju scale', look: 'scale', x: -2, w: 2.6, h: 1.2, mass: 9, value: 7000 },
+        { label: 'Kaiju claw', look: 'claw', x: 33, w: 4, h: 2.2, mass: 16, value: 9000 },
+      ],
+      scar: 'footprint',
+    },
   },
   {
     id: 'halden',
@@ -636,8 +752,18 @@ export const BUILDINGS: BuildingDef[] = [
       { label: 'Column C · floor 2', note: 'water-damaged base', known: false },
       { label: 'Column G · floor 12', note: 'undersized repair', known: false },
     ],
-    prize: { label: 'Exchange vault', home: 'Core wall · floor 1', look: 'safe', w: 2.2, h: 1.9, mass: 14, value: 25000 },
+    prize: { label: 'Kaiju egg', home: 'Core wall · floor 1', look: 'egg', w: 1.8, h: 2.2, mass: 12, value: 30000 },
     neighbour: { name: 'Pellow’s Bakery', look: 'bakery', w: 16, h: 9 },
+    incident: {
+      headline: 'The final battle ended on the fifteenth floor. Something is ticking in the vault.',
+      cause: 'mech',
+      gone: ['Window bay F–G · floor 13', 'Window bay H–J · floor 13', 'Window bay F–G · floor 14', 'Window bay H–J · floor 12', 'Antenna mast'],
+      damaged: [['Column G · floor 13', 0.4], ['Column H · floor 12', 0.35], ['Brick bay B–C · floor 2', 0.5]],
+      fires: ['Window bay H–J · floor 14', 'Window bay J–K · floor 14', 'Brick bay C–D · floor 3'],
+      debris: [[30, 3], [44, 2.5], [8, 2]],
+      relics: [{ label: 'Mech reactor core', look: 'core', x: 48, w: 2.2, h: 2.2, mass: 8, value: 12000 }],
+      scar: 'claw-marks',
+    },
   },
 ];
 
