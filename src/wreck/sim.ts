@@ -68,12 +68,14 @@ const LUFF_SPEED = 0.45;
 /** How fast overload turns into failure: strain per second per unit of overstress. */
 const CREEP = 1.25;
 const SNAP_STRESS = 2.3;
+const SNAPS_PER_TICK = 2;
 const HM_CELL = 0.5;
 const HM_MIN_X = -90;
 const HM_MAX_X = 120;
 const GRID = 2;
 /** Heap area per square metre of fallen piece. */
 const RUBBLE_BULK = 0.12;
+const MAX_WRECK = 260;
 
 export const PIECE_STANDING = 0;
 export const PIECE_FALLING = 1;
@@ -192,6 +194,17 @@ export interface WreckState {
   blocks: Block[];
   nextBlockId: number;
   tally: Tally;
+  /** Members lying where their section came to rest, half sunk in the heap, until the dozer moves them. */
+  wreck: Wreck[];
+}
+
+export interface Wreck {
+  piece: number;
+  x: number;
+  y: number;
+  a: number;
+  /** Heap height under it when it settled: it sinks as the heap is pushed away. */
+  g: number;
 }
 
 /** Everything the player can do, as data, so it can be recorded and replayed. */
@@ -339,6 +352,7 @@ export function initialState(h: Halden = halden()): WreckState {
     blocks: [vault],
     nextBlockId: 2,
     tally: emptyTally(),
+    wreck: [],
   };
 }
 
@@ -721,12 +735,16 @@ export class WreckSim {
     let creak = 0;
     let creakX = 0;
     let creakY = 0;
+    // Only the worst-overloaded few snap outright this tick; the rest creep while
+    // the structure re-solves, so the weakest link goes first and a block that
+    // loses its support drops as a block instead of every member failing at once.
+    const snapOk = this.snapCandidates();
     for (let i = 0; i < def.pieces.length; i++) {
       if (s.status[i] !== PIECE_STANDING) continue;
       const stress = r.pieceStress[i] as number;
       if (stress <= 1) continue;
       const before = s.strain[i] as number;
-      const after = stress > SNAP_STRESS ? 1 : before + (stress - 1) * CREEP * DT;
+      const after = stress > SNAP_STRESS && snapOk.has(i) ? 1 : before + (stress - 1) * CREEP * DT;
       s.strain[i] = after;
       const p = def.pieces[i] as PieceDef;
       if (stress > creak) {
@@ -741,7 +759,7 @@ export class WreckSim {
         const root = s.blame[i] || s.lastRoot;
         this.bumpChain(root);
         this.noteFailure(root, i, p.horizontal ? 'crushed' : 'buckled');
-        this.destroyStanding(i, root, 'overload');
+        this.buckle(i, root);
       }
     }
     for (const j of def.joints) {
@@ -752,7 +770,7 @@ export class WreckSim {
       const b = j.b === GROUND || s.status[j.b] === PIECE_STANDING;
       if (!a || !b) continue;
       const before = s.jointStrain[j.id] as number;
-      const after = stress > SNAP_STRESS ? 1 : before + (stress - 1) * CREEP * DT;
+      const after = stress > SNAP_STRESS && snapOk.has(-1 - j.id) ? 1 : before + (stress - 1) * CREEP * DT;
       s.jointStrain[j.id] = after;
       if (stress > creak) {
         creak = stress;
@@ -790,6 +808,37 @@ export class WreckSim {
   private bumpChain(root: number, n = 1): void {
     const rec = this.state.roots[root];
     if (rec) rec.chain += n;
+  }
+
+  /** The few most overloaded pieces (id) and joints (-1 - id) allowed to snap this tick. */
+  private snapCandidates(): Set<number> {
+    const s = this.state;
+    const r = this.solution;
+    const list: Array<[number, number]> = [];
+    for (let i = 0; i < r.pieceStress.length; i++) {
+      const st = r.pieceStress[i] as number;
+      if (st > SNAP_STRESS && s.status[i] === PIECE_STANDING) list.push([i, st]);
+    }
+    for (let j = 0; j < r.jointStress.length; j++) {
+      const st = r.jointStress[j] as number;
+      if (st > SNAP_STRESS && s.jointOk[j]) list.push([-1 - j, st]);
+    }
+    list.sort((a, b) => b[1] - a[1]);
+    return new Set(list.slice(0, SNAPS_PER_TICK).map((e) => e[0]));
+  }
+
+  /**
+   * An overloaded member gives way: it buckles, tears out of its connections
+   * and comes down with whatever it was holding, rather than vanishing.
+   */
+  private buckle(id: number, root: number): void {
+    const s = this.state;
+    const p = this.def.pieces[id] as PieceDef;
+    s.hp[id] = Math.min(s.hp[id] as number, p.hp * 0.25);
+    s.strain[id] = 0;
+    for (const jid of this.h.adj.joints[id] as number[]) this.breakJoint(jid, root);
+    s.dirty = true;
+    this.events.push({ type: 'crack', x: p.x + p.w / 2, y: p.y + p.h / 2, material: p.material, strength: 1 });
   }
 
   private noteFailure(root: number, piece: number, kind: RootRecord['firstFailKind']): void {
@@ -1491,6 +1540,13 @@ export class WreckSim {
       b.y += cy * corr;
     }
 
+    // A big section bearing on something crumples under its own weight,
+    // worst where it bears and worse the further it leans.
+    if (b.mass > 150 && b.pieces.length > 4 && b.age > 0.3 && this.crumple(b, contacts)) {
+      this.splitBody(b);
+      return;
+    }
+
     // Break the section where it was hit hardest.
     if (bodyHits.size && b.age > 0.12) {
       let changed = b.pieces.some((id) => id >= 0 && this.brokenInside(b, id));
@@ -1524,9 +1580,81 @@ export class WreckSim {
           if (b.root) this.claim(b.root);
         }
       } else if (groundContacts > 0) {
+        // Nothing tall and slender comes to rest standing on end: it goes over in pieces.
+        if (this.tooTallToRest(b)) {
+          this.fallApart(b);
+          return;
+        }
         this.toRubble(b);
       }
     }
+  }
+
+  private tooTallToRest(b: Body): boolean {
+    if (b.pieces.filter((id) => id >= 0).length < 2) return false;
+    const cos = Math.cos(b.a);
+    const sin = Math.sin(b.a);
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let i = 0; i < b.px.length; i++) {
+      const y = b.y + (b.px[i] as number) * sin + (b.py[i] as number) * cos;
+      lo = Math.min(lo, y);
+      hi = Math.max(hi, y);
+    }
+    return hi - lo > 6;
+  }
+
+  /** Breaks every tie inside a section and lets the pieces topple on their own. */
+  private fallApart(b: Body): void {
+    const s = this.state;
+    for (const id of b.pieces) {
+      if (id < 0) continue;
+      for (const jid of this.h.adj.joints[id] as number[]) {
+        const j = this.def.joints[jid];
+        if (!j || j.b === GROUND || !s.jointOk[jid]) continue;
+        const other = j.a === id ? j.b : j.a;
+        if (s.bodyOf[other] === b.id) s.jointOk[jid] = 0;
+      }
+    }
+    const before = new Set(s.bodies);
+    this.splitBody(b);
+    // A nudge, alternating, so the pieces go over instead of balancing.
+    let k = 0;
+    for (const nb of s.bodies) {
+      if (before.has(nb)) continue;
+      nb.w = (k++ % 2 === 0 ? 1 : -1) * 0.9;
+      nb.vx += nb.w * 0.4;
+    }
+  }
+
+  /** Self-weight damage to a section's internal ties. Returns true if any gave way. */
+  private crumple(b: Body, contacts: Array<{ ry: number }>): boolean {
+    const s = this.state;
+    const def = this.def;
+    let lowY = Infinity;
+    for (const c of contacts) lowY = Math.min(lowY, b.y + c.ry);
+    const lean = Math.min(1, Math.abs(Math.sin(b.a)) * 2.5 + 0.35);
+    const k = DT * 2 * lean * Math.min(2.5, b.mass / 700);
+    const cos = Math.cos(b.a);
+    const sin = Math.sin(b.a);
+    let changed = false;
+    b.pieces.forEach((id, idx) => {
+      if (id < 0) return;
+      const wy = b.y + (b.lx[idx] as number) * sin + (b.ly[idx] as number) * cos;
+      const near = Math.exp(-Math.max(0, wy - lowY) / 9);
+      if (near < 0.05) return;
+      for (const jid of this.h.adj.joints[id] as number[]) {
+        if (!s.jointOk[jid]) continue;
+        const j = def.joints[jid];
+        if (!j || j.b === GROUND || j.a !== id || s.bodyOf[j.b] !== b.id) continue;
+        s.jointDmg[jid] = Math.min(1, (s.jointDmg[jid] as number) + k * near * (600 / j.toughness));
+        if ((s.jointDmg[jid] as number) >= 1) {
+          s.jointOk[jid] = 0;
+          changed = true;
+        }
+      }
+    });
+    return changed;
   }
 
   private brokenInside(b: Body, id: number): boolean {
@@ -1571,6 +1699,12 @@ export class WreckSim {
       s.bodyOf[id] = -1;
       this.events.push({ type: 'shatter', piece: id, x: wx, y: wy, a: b.a, vx: b.vx, vy: b.vy, material: p.material, cause: 'impact' });
       this.depositMound(wx, p.w, p.w * p.h * RUBBLE_BULK);
+      // Smashed on landing, a member still lies there, battered, in the heap.
+      const ground = heightAt(s.heightmap, wx);
+      if (p.material !== 'glass' && wy < ground + 5) {
+        s.wreck.push({ piece: id, x: wx, y: ground + Math.min(p.w, p.h) * 0.3, a: b.a, g: ground });
+        if (s.wreck.length > MAX_WRECK) s.wreck.shift();
+      }
       b.pieces[k] = -1;
       changed = true;
       void root;
@@ -1623,6 +1757,8 @@ export class WreckSim {
       }
       groups.push(g);
     }
+    // Ties broke but nothing actually came apart: it is still the same section.
+    if (groups.length === 1 && live.length === b.pieces.length) return;
     const made: Body[] = [];
     for (const g of groups) {
       const nb = this.makeBody(g, b.root, { x: b.x, y: b.y, a: b.a, wx: g.map((id) => wx.get(id) as number), wy: g.map((id) => wy.get(id) as number) });
@@ -1650,6 +1786,7 @@ export class WreckSim {
     const cos = Math.cos(b.a);
     const sin = Math.sin(b.a);
     let shown = 0;
+    const kept: Array<{ piece: number; x: number; y: number }> = [];
     b.pieces.forEach((id, k) => {
       if (id < 0) return;
       const p = this.def.pieces[id] as PieceDef;
@@ -1659,13 +1796,17 @@ export class WreckSim {
       const cy = b.y + lx * sin + ly * cos;
       s.status[id] = PIECE_GONE;
       s.bodyOf[id] = -1;
-      if (!blockFromPiece(this, p, cx)) this.depositMound(cx, Math.max(p.w, p.h) * 0.8, p.w * p.h * RUBBLE_BULK);
-      // Only the bigger pieces throw visible debris; the rest just settle into the heap.
-      if (shown < 24 && (p.mass > 8 || k % 4 === 0)) {
+      if (blockFromPiece(this, p, cx)) return;
+      this.depositMound(cx, Math.max(p.w, p.h) * 0.8, p.w * p.h * RUBBLE_BULK);
+      // The frame stays where it landed, so a collapse leaves a wreck you can read, not a smear.
+      if (p.material !== 'glass') kept.push({ piece: id, x: cx, y: cy });
+      else if (shown < 10) {
         shown++;
         this.events.push({ type: 'shatter', piece: id, x: cx, y: cy, a: b.a, vx: 0, vy: 0, material: p.material, cause: 'impact' });
       }
     });
+    for (const w of kept) s.wreck.push({ ...w, a: b.a, g: heightAt(s.heightmap, w.x) });
+    if (s.wreck.length > MAX_WRECK) s.wreck.splice(0, s.wreck.length - MAX_WRECK);
     b.pieces = [];
     b.state = 'rubble';
   }

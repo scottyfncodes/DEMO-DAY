@@ -261,10 +261,11 @@ export class WreckFx {
           this.shake = Math.max(this.shake, 0.3 + k * 1.1);
           this.punch = Math.max(this.punch, k * 0.04);
           const spread = 2 + Math.sqrt(e.mass) * 0.35;
-          const puffs = Math.round((3 + k * 10) * q);
+          const puffs = Math.round((2 + k * 7) * q);
           for (let i = 0; i < puffs; i++) {
             const side = Math.random() < 0.5 ? -1 : 1;
-            this.dust(e.x + (Math.random() - 0.5) * spread, e.y + Math.random(), 1.4 + k * 3, side * (1.5 + Math.random() * 4 * (0.4 + k)), 0.6 + Math.random(), 6 + k * 5, 0.5, 1.2);
+            // Thick at first, but it clears in a few seconds so the wreck can be read.
+            this.dust(e.x + (Math.random() - 0.5) * spread, e.y + Math.random(), 1.2 + k * 2.4, side * (1.5 + Math.random() * 4 * (0.4 + k)), 0.6 + Math.random(), 3.5 + k * 2.5, 0.42, 1);
           }
           break;
         }

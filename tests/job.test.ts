@@ -21,6 +21,8 @@ const settle = (sim: WreckSim, max = 30): void => {
 /** A lot with nothing left standing on it, so the machines can drive anywhere. */
 const emptyLot = (sim: WreckSim): void => {
   for (const p of H.def.pieces) sim.state.status[p.id] = PIECE_GONE;
+  // Bring the dozer in from its parking spot to the edge of the lot.
+  sim.state.dozer.x = sim.state.dozer.targetX = -8;
   sim.state.standingMass = 0;
   sim.state.dirty = true;
   sim.step();
@@ -90,6 +92,28 @@ describe('charges', () => {
     expect(sim.state.charges[0]?.state).toBe(2);
     expect(sim.state.tally.chargesFired).toBe(0);
   });
+});
+
+describe('a volley at street level', () => {
+  it('brings the tower down in sections that land as wreckage, not dust', () => {
+    const sim = new WreckSim();
+    for (const l of ['Column E · floor 1', 'Column F · floor 1', 'Column G · floor 1']) sim.command({ kind: 'charge', piece: byLabel(l).id, charge: 'cutter', y: 1.5 });
+    for (const l of ['Column H · floor 1', 'Column J · floor 1']) sim.command({ kind: 'charge', piece: byLabel(l).id, charge: 'blast', y: 1.5 });
+    sim.command({ kind: 'detonate' });
+    let vanished = 0;
+    let biggest = 0;
+    for (let i = 0; i < 60 * 30; i++) {
+      for (const e of sim.step()) {
+        // Overloaded members buckle and fall; they are never deleted on the spot.
+        if (e.type === 'shatter' && e.cause === 'overload') vanished++;
+        if (e.type === 'detach') biggest = Math.max(biggest, e.mass);
+      }
+    }
+    expect(vanished).toBe(0);
+    expect(biggest).toBeGreaterThan(800);
+    expect(sim.standingFraction).toBeLessThan(DOWN_AT);
+    expect(sim.state.wreck.length).toBeGreaterThan(40);
+  }, 60000);
 });
 
 describe('weak points', () => {
