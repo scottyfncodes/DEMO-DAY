@@ -61,6 +61,7 @@ async function main() {
   let p = await screenOf('Column A · floor 1', 0.5);
   await page.touchscreen.tap(p.x, p.y);
   await page.locator('.machine-tile', { hasText: 'Crane' }).tap();
+  await page.waitForTimeout(800);
   p = await screenOf('Column A · floor 1', 0.4);
   await page.touchscreen.tap(p.x, p.y);
   await page.waitForTimeout(300);
@@ -75,6 +76,7 @@ async function main() {
   await ready();
 
   await page.locator('.machine-tile', { hasText: 'Dozer' }).tap();
+  await page.waitForTimeout(800);
   for (let i = 0; i < 4; i++) {
     if (await page.locator('.finish-bar:not(.hidden)').count()) break;
     const g = await page.evaluate(() => window.__play.worldToScreen(-1 + 0.63, 0.51));
