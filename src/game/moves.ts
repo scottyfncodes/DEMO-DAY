@@ -408,7 +408,16 @@ export class Job {
     const L = sim.h.site;
     const padC = (L.padMin + L.padMax) / 2;
     const pitC = (L.pitMin + L.pitMax) / 2;
-    const dir: 1 | -1 = dirOpt ?? (Math.abs(x - pitC) <= Math.abs(x - padC) ? (pitC >= x ? 1 : -1) : padC >= x ? 1 : -1);
+    // By default the blade drives through the bulk of the heap; on a tie, toward the nearer drop zone.
+    let ahead = 0;
+    let behind = 0;
+    for (let u = 0.25; u < PUSH_RUN; u += 0.5) {
+      ahead += heightAt(s.heightmap, x + u);
+      behind += heightAt(s.heightmap, x - u);
+    }
+    for (const b of s.blocks) if (b.mass <= s.kit.heavyPush && Math.abs(b.x - x) < PUSH_RUN) (b.x > x ? (ahead += b.area * 2) : (behind += b.area * 2));
+    const nearer: 1 | -1 = Math.abs(x - pitC) <= Math.abs(x - padC) ? (pitC >= x ? 1 : -1) : padC >= x ? 1 : -1;
+    const dir: 1 | -1 = dirOpt ?? (Math.abs(ahead - behind) < 0.5 ? nearer : ahead > behind ? 1 : -1);
     const range = dozerRange(sim);
     const reach = DOZER_HALF + BLADE;
     const from = Math.max(range.minX + reach, Math.min(range.maxX + reach, x));

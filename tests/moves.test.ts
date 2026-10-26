@@ -152,7 +152,7 @@ describe('move budgets', () => {
     const replay = newJob();
     let k = 0;
     while (replay.sim.state.tick < end) {
-      while (k < job.log.length && (job.log[k] as { tick: number }).tick === replay.sim.state.tick) replay.sim.command((job.log[k++] as { cmd: never }).cmd);
+      while (k < job.log.length && (job.log[k] as { tick: number }).tick === replay.sim.state.tick) replay.sim.command((job.log[k++] as (typeof job.log)[number]).cmd);
       replay.sim.step();
     }
     expect([...replay.sim.state.status]).toEqual([...job.sim.state.status]);

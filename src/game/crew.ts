@@ -20,7 +20,6 @@ export function crewMove(job: Job): MovePlan | undefined {
   const has = (m: MachineId): boolean => job.left(m) > 0;
   if (job.placedCharges > 0 && (!has('charges') || job.placedCharges >= 3)) return job.planDetonate();
   if (sim.standingFraction > c.downAt) {
-    const site = sim.h.site;
     // Low, load-bearing members, the side away from the neighbour first.
     const low = sim.def.pieces
       .filter((p) => s.status[p.id] === PIECE_STANDING && p.carriesOthers && p.y < 6 && p.kind !== 'beam' && p.kind !== 'roof')

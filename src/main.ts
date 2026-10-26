@@ -1,30 +1,27 @@
 import './styles.css';
 import { App } from './app';
-import { contractScreen, contractsScreen } from './ui/screens/contracts';
-import { equipmentScreen } from './ui/screens/equipment';
-import { jobScreen } from './ui/screens/job';
-import { menuScreen } from './ui/screens/menu';
+import { briefScreen } from './ui/screens/brief';
+import { garageScreen } from './ui/screens/garage';
+import { jobsScreen } from './ui/screens/jobs';
+import { playScreen } from './ui/screens/play';
 import { recordsScreen } from './ui/screens/records';
-import { reportScreen } from './ui/screens/report';
 import { settingsScreen } from './ui/screens/settings';
-import { wreckScreen } from './ui/screens/wreck';
+import { titleScreen } from './ui/screens/title';
 
 const root = document.getElementById('app');
 if (!root) throw new Error('Missing #app root');
 
 const app = new App(root);
-app.register('menu', menuScreen);
-app.register('contracts', contractsScreen);
-app.register('contract', contractScreen);
-app.register('job', jobScreen);
-app.register('report', reportScreen);
-app.register('equipment', equipmentScreen);
-app.register('records', recordsScreen);
+app.register('title', titleScreen);
+app.register('jobs', jobsScreen);
+app.register('brief', briefScreen);
+app.register('play', playScreen);
+app.register('garage', garageScreen);
 app.register('settings', settingsScreen);
-app.register('wreck', wreckScreen);
-app.go('menu');
+app.register('records', recordsScreen);
+app.go('title');
 
-// Debug/automation hook (used by the smoke test).
+// Automation hook (used by the smoke test).
 (window as unknown as { __demoDay?: App }).__demoDay = app;
 
 // Offline support and Home Screen install.

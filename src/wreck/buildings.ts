@@ -527,7 +527,7 @@ export const BUILDINGS: BuildingDef[] = [
     depth: 9,
     setting: 'town',
     sign: 'CORNER STORE',
-    site: { padMin: -15, padMax: -8, pitMin: 19, pitMax: 25, lotMin: -4, lotMax: 17, neighbourX: 29, boom: 24, craneX: -22, dozerX: -6, excX: 16, loaderX: -11 },
+    site: { padMin: -15, padMax: -8, pitMin: 19, pitMax: 25, lotMin: -4, lotMax: 17, neighbourX: 29, boom: 24, craneX: -22, dozerX: -13, excX: 18, loaderX: -18 },
     flaws: [{ label: 'Column B · floor 1', note: 'cracked brick pier', known: true }],
     neighbour: { name: 'the laundromat', look: 'bakery', w: 10, h: 7 },
   },
@@ -539,7 +539,7 @@ export const BUILDINGS: BuildingDef[] = [
     depth: 12,
     setting: 'suburb',
     sign: 'HALSEY AUTO',
-    site: { padMin: -16, padMax: -8, pitMin: 30, pitMax: 37, lotMin: -4, lotMax: 28, neighbourX: 41, boom: 26, craneX: -24, dozerX: -6, excX: 27, loaderX: -12 },
+    site: { padMin: -16, padMax: -8, pitMin: 35, pitMax: 41, lotMin: -4, lotMax: 30, neighbourX: 45, boom: 26, craneX: -24, dozerX: -11, excX: 33.5, loaderX: -19 },
     flaws: [
       { label: 'Column C · floor 1', note: 'rusted base plate', known: true },
       { label: 'Column E · floor 1', note: 'impact-bent flange', known: false },
@@ -553,7 +553,7 @@ export const BUILDINGS: BuildingDef[] = [
     build: buildHouse,
     depth: 10,
     setting: 'suburb',
-    site: { padMin: -17, padMax: -9, pitMin: 19, pitMax: 25, lotMin: -5, lotMax: 17, neighbourX: 29, boom: 24, craneX: -24, dozerX: -6, excX: 16, loaderX: -13 },
+    site: { padMin: -17, padMax: -9, pitMin: 19, pitMax: 25, lotMin: -5, lotMax: 17, neighbourX: 29, boom: 24, craneX: -24, dozerX: -12, excX: 18, loaderX: -20 },
     flaws: [{ label: 'Chimney · course 1', note: 'crumbling mortar', known: true }],
     prize: { label: 'Old floor safe', home: 'Clapboard bay B–C · floor 1', look: 'safe', w: 1.2, h: 1.2, mass: 4, value: 6000 },
     neighbour: { name: 'No. 14', look: 'house', w: 11, h: 8 },
@@ -565,7 +565,7 @@ export const BUILDINGS: BuildingDef[] = [
     build: buildSilo,
     depth: 7,
     setting: 'farm',
-    site: { padMin: -46, padMax: -37, pitMin: 9.5, pitMax: 14.5, lotMin: -34, lotMax: 8.5, neighbourX: 17, boom: 34, craneX: -42, dozerX: -30, excX: -24, loaderX: -40 },
+    site: { padMin: -46, padMax: -37, pitMin: 9.5, pitMax: 14.5, lotMin: -34, lotMax: 8.5, neighbourX: 17, boom: 34, craneX: -42, dozerX: -38, excX: -44, loaderX: -52 },
     flaws: [
       { label: 'Column A · floor 1', note: 'spalled stave', known: true },
       { label: 'Silo wall A–B · floor 2', note: 'delaminated pour', known: false },
@@ -579,7 +579,7 @@ export const BUILDINGS: BuildingDef[] = [
     build: buildStack,
     depth: 8,
     setting: 'yard',
-    site: { padMin: -58, padMax: -48, pitMin: 8, pitMax: 13, lotMin: -46, lotMax: 7.5, neighbourX: 16, boom: 40, craneX: -52, dozerX: -36, excX: -28, loaderX: -52 },
+    site: { padMin: -58, padMax: -48, pitMin: 8, pitMax: 13, lotMin: -46, lotMax: 7.5, neighbourX: 16, boom: 40, craneX: -52, dozerX: -44, excX: -50, loaderX: -62 },
     flaws: [
       { label: 'Column A · floor 1', note: 'burnt-out brick', known: true },
       { label: 'Stack A–B · floor 3', note: 'frost-split courses', known: false },
@@ -594,7 +594,7 @@ export const BUILDINGS: BuildingDef[] = [
     depth: 14,
     setting: 'wharf',
     sign: 'RIVERSIDE STORES',
-    site: { padMin: -19, padMax: -9, pitMin: 40, pitMax: 48, lotMin: -5, lotMax: 38, neighbourX: 52, boom: 44, craneX: -30, dozerX: -7, excX: 37, loaderX: -14 },
+    site: { padMin: -19, padMax: -9, pitMin: 40, pitMax: 48, lotMin: -5, lotMax: 38, neighbourX: 52, boom: 44, craneX: -30, dozerX: -13, excX: 37, loaderX: -22 },
     flaws: [
       { label: 'Column B · floor 1', note: 'tidal rot at the base', known: true },
       { label: 'Column F · floor 2', note: 'corroded rebar', known: false },
@@ -610,7 +610,7 @@ export const BUILDINGS: BuildingDef[] = [
     build: buildParkade,
     depth: 16,
     setting: 'city',
-    site: { padMin: -19, padMax: -9, pitMin: 38, pitMax: 46, lotMin: -5, lotMax: 37, neighbourX: 50, boom: 40, craneX: -30, dozerX: -7, excX: 36, loaderX: -14 },
+    site: { padMin: -19, padMax: -9, pitMin: 38, pitMax: 46, lotMin: -5, lotMax: 37, neighbourX: 50, boom: 40, craneX: -30, dozerX: -13, excX: 35, loaderX: -22 },
     flaws: [
       { label: 'Column C · floor 1', note: 'salt-damaged base', known: true },
       { label: 'Column E · floor 2', note: 'punching crack', known: false },
