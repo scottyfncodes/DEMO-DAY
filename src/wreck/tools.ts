@@ -32,7 +32,7 @@ export const CHARGE_SPEC: Record<ChargeKind, { main: number; splash: number; rad
   // Cuts the member it is strapped to and little else.
   cutter: { main: 760, splash: 90, radius: 1.6, reveal: 3, chainR: 1.6 },
   // Less on the member, a wide shock that strips cladding, loosens joints and finds weak points.
-  blast: { main: 420, splash: 360, radius: 4.6, reveal: 7, chainR: 3.2 },
+  blast: { main: 420, splash: 300, radius: 3.4, reveal: 7, chainR: 3.2 },
 };
 
 export const CHARGE_KINDS = new Set<PieceDef['kind']>(['column', 'core', 'truss', 'beam', 'roof', 'legs']);
@@ -173,7 +173,7 @@ export function initialMachines(): { exc: Excavator; dozer: Dozer } {
   const arm = excavatorArm(exc, exc.targetX, exc.targetY);
   exc.jawX = arm.jx;
   exc.jawY = arm.jy;
-  const dozer: Dozer = { x: -27, y: 0, dir: 1, targetX: -27, bladeDown: false, load: 0, stall: '', ramTimer: 0, root: 0, lastRam: -99, stunned: 0, speed: 0 };
+  const dozer: Dozer = { x: -44, y: 0, dir: 1, targetX: -44, bladeDown: false, load: 0, stall: '', ramTimer: 0, root: 0, lastRam: -99, stunned: 0, speed: 0 };
   return { exc, dozer };
 }
 
@@ -351,7 +351,7 @@ export function fireCharge(sim: WreckSim, c: Charge, root: number, cause: FireCa
     if (d > spec.radius) continue;
     const k = 1 - d / spec.radius;
     // Glass and brick take a blast far worse than the frame does.
-    const soft = p.carriesOthers ? 1 : 2.4;
+    const soft = p.carriesOthers ? 1 : 1.4;
     sim.damageStanding(id, spec.splash * k * soft, root, 'blast', Math.sign(p.x + p.w / 2 - pos.x) * 3 * k, 2 * k);
   }
   revealNear(sim, pos.x, pos.y, spec.reveal);
@@ -524,17 +524,28 @@ function bite(sim: WreckSim): void {
     sim.emit({ type: 'bite', x: jx, y: jy, piece: id, material: p.material, target: 'section' });
     return;
   }
-  // Debris on the ground.
+  // Debris on the ground: the nearest block under the jaws, debris before the vault.
+  let hit: Block | undefined;
+  let hitScore = Infinity;
   for (const blk of s.blocks) {
-    if (jx < blk.x - blk.w / 2 - r || jx > blk.x + blk.w / 2 + r || jy < blk.y - r || jy > blk.y + blk.h + r) continue;
-    if (blk.kind === 'vault') {
-      s.tally.vaultCondition = Math.max(0, s.tally.vaultCondition - 0.2);
-      sim.emit({ type: 'bite', x: jx, y: jy, piece: -1, material: 'steel', target: 'vault' });
-      return;
+    // Jaws resting on the rubble over a buried block still dig down to it.
+    const top = Math.max(blk.y + blk.h, heightAt(s.heightmap, jx) + 0.6);
+    if (jx < blk.x - blk.w / 2 - r || jx > blk.x + blk.w / 2 + r || jy < blk.y - r || jy > top + r) continue;
+    const score = Math.abs(jx - blk.x) + (blk.kind === 'vault' ? 3 : 0);
+    if (score < hitScore) {
+      hitScore = score;
+      hit = blk;
     }
-    blk.hp -= BITE_ENERGY * BITE_MULT[blk.material];
-    sim.emit({ type: 'bite', x: jx, y: jy, piece: -1, material: blk.material, target: 'block' });
-    if (blk.hp <= 0) breakBlock(sim, blk);
+  }
+  if (hit?.kind === 'vault') {
+    s.tally.vaultCondition = Math.max(0, s.tally.vaultCondition - 0.2);
+    sim.emit({ type: 'bite', x: jx, y: jy, piece: -1, material: 'steel', target: 'vault' });
+    return;
+  }
+  if (hit) {
+    hit.hp -= BITE_ENERGY * BITE_MULT[hit.material];
+    sim.emit({ type: 'bite', x: jx, y: jy, piece: -1, material: hit.material, target: 'block' });
+    if (hit.hp <= 0) breakBlock(sim, hit);
     return;
   }
   sim.emit({ type: 'bite', x: jx, y: jy, piece: -1, material: 'concrete', target: 'air' });
@@ -614,10 +625,10 @@ export function stepDozer(sim: WreckSim): void {
     return;
   }
   d.load = loadAhead(sim, d);
-  const vmax = forward ? 5.6 * Math.max(0.3, Math.min(1, 1.15 - d.load / (BLADE_CAP * 2.4))) : 5.2;
+  const vmax = forward ? 5.6 * Math.max(0.5, Math.min(1, 1.15 - d.load / (BLADE_CAP * 2.4))) : 5.2;
   let step = Math.max(-vmax * DT, Math.min(vmax * DT, dx));
   // Site limits: the blade can reach over the pit and the pad, the tracks cannot.
-  const minX = SITE_LAYOUT.padMin - 14;
+  const minX = SITE_LAYOUT.padMin - 32;
   const maxX = SITE_LAYOUT.pitMax - DOZER_HALF - 1;
   const lim = travelLimits(sim, d.x, DOZER_HALF + (forward ? BLADE : 0), BLADE_H);
   step = Math.max(Math.max(minX, lim.min) - d.x, Math.min(Math.min(maxX, lim.max) - d.x, step));
@@ -673,7 +684,7 @@ function push(sim: WreckSim, d: Dozer, step: number): number {
     }
   } else if (train.length) {
     // Slower with the weight on the blade.
-    const slow = Math.max(0.3, 1 - mass / DOZER_PUSH_MAX / 2.2);
+    const slow = Math.max(0.55, 1 - mass / DOZER_PUSH_MAX / 2.2);
     f1 = f0 + (f1 - f0) * slow;
     let face = f1;
     for (const b of train) {
@@ -690,6 +701,14 @@ function push(sim: WreckSim, d: Dozer, step: number): number {
   const spill = swept - carried;
   if (spill > 0) dropMound(sim, d.x - dir * (DOZER_HALF + 0.8), 1.6, spill);
   if (carried > 0) depositAhead(sim, f1, dir, carried);
+  // Wrecked members in the blade's path go with the pile.
+  const lo = Math.min(f0, f1);
+  const hi = Math.max(f0, f1);
+  const w = s.wreck;
+  for (let i = w.length - 1; i >= 0; i--) {
+    const x = (w[i] as { x: number }).x;
+    if (x >= lo - 0.3 && x <= hi + 0.3) w.splice(i, 1);
+  }
   if (spill > 0.02) d.stall = d.stall || 'full';
   return f1 - f0;
 }
@@ -837,6 +856,15 @@ export function stepSite(sim: WreckSim): void {
     }
   }
   if (s.tick % 2 === 0) checkMachines(sim);
+  if (s.tick % 6 === 0) {
+    for (let i = s.wreck.length - 1; i >= 0; i--) {
+      const w = s.wreck[i] as { x: number; g: number };
+      const inPit = w.x > L.pitMin && w.x < L.pitMax;
+      const inPad = w.x > L.padMin && w.x < L.padMax;
+      // Once the ground under it has been scraped bare, it has gone with the rubble.
+      if (inPit || inPad || (w.g > 0.4 && heightAt(hm, w.x) < 0.12)) s.wreck.splice(i, 1);
+    }
+  }
 }
 
 function checkMachines(sim: WreckSim): void {

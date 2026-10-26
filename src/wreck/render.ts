@@ -1,6 +1,6 @@
 import type { Camera } from '../render/camera';
 import type { WreckFx } from './fx';
-import { BALL_R, HEIGHTMAP, PIECE_FALLING, PIECE_STANDING, craneFoot, craneHook, type Prediction, type WreckSim } from './sim';
+import { BALL_R, HEIGHTMAP, PIECE_FALLING, PIECE_STANDING, craneFoot, craneHook, heightAt, type Prediction, type WreckSim } from './sim';
 import { GROUND, type PieceDef } from './structure';
 import { drawBlocks, drawChargeMarks, drawChargeTargets, drawDozer, drawExcavator, drawFlawMarks, drawFloaters, drawNeighbour, drawSiteMarks, drawToolMarks, type Floater } from './render-site';
 import type { Tool } from './tools';
@@ -127,8 +127,9 @@ export class WreckRenderer {
       drawBlocks(ctx, sim, s, 'vault', tool, opt.time);
     }
     this.drawRubble(ctx, view, sim);
-    if (site) drawBlocks(ctx, sim, s, 'debris', tool, opt.time);
     const detail = s;
+    this.drawWreck(ctx, sim, detail, opt);
+    if (site) drawBlocks(ctx, sim, s, 'debris', tool, opt.time);
     // Settled sections first, then the standing building, then anything in motion.
     for (const b of sim.state.bodies) if (b.state === 'rubble') this.drawBody(ctx, sim, b, detail, opt);
     this.drawStanding(ctx, sim, detail, opt);
@@ -335,6 +336,20 @@ export class WreckRenderer {
       const col = stress >= 1 ? C.fail : C.strain;
       ctx.fillStyle = `rgba(${col},${0.12 + k * 0.5})`;
       ctx.fillRect(p.x, p.y - (sag[p.id] as number), p.w, p.h);
+    }
+  }
+
+  /** Members lying where their section came down, sinking as the heap under them is pushed away. */
+  private drawWreck(ctx: CanvasRenderingContext2D, sim: WreckSim, scale: number, opt: DrawOptions): void {
+    const hm = sim.state.heightmap;
+    for (const w of sim.state.wreck) {
+      const p = sim.def.pieces[w.piece] as PieceDef;
+      const y = w.y + (heightAt(hm, w.x) - w.g);
+      ctx.save();
+      ctx.translate(w.x, y);
+      ctx.rotate(w.a);
+      this.drawPiece(ctx, sim, p, -p.w / 2, -p.h / 2, scale, opt, true);
+      ctx.restore();
     }
   }
 

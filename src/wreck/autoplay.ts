@@ -184,7 +184,7 @@ export class Crew {
       return { x: b.x, y: b.y };
     }
     const b = s.blocks.find((q) => q.id === t.id);
-    return b ? { x: b.x, y: b.y + b.h / 2 } : undefined;
+    return b ? { x: b.x, y: Math.max(b.y + b.h / 2, heightAt(s.heightmap, b.x) + 0.6) } : undefined;
   }
 
   private excavate(sim: WreckSim): Command[] {
@@ -217,8 +217,9 @@ export class Crew {
         this.fixing = undefined;
         return [{ kind: 'bite', on: false }, { kind: 'exc', x: 60, y: 6 }];
       }
-      const close = Math.hypot(s.exc.jawX - b.x, s.exc.jawY - (b.y + b.h / 2)) < 1.4;
-      const out: Command[] = [{ kind: 'exc', x: b.x, y: b.y + b.h / 2 }];
+      const y = Math.max(b.y + b.h / 2, heightAt(s.heightmap, b.x) + 0.6);
+      const close = Math.hypot(s.exc.jawX - b.x, s.exc.jawY - y) < 1.4;
+      const out: Command[] = [{ kind: 'exc', x: b.x, y }];
       if (close && !s.exc.biting) out.push({ kind: 'bite', on: true });
       return out;
     }
@@ -257,7 +258,9 @@ export class Crew {
       if (sideLeft(b.x) || b.kind !== 'slab') leftWork += b.area + (b.kind === 'vault' ? 10 : 0);
       else rightWork += b.area;
     }
-    const side: -1 | 1 = leftWork > 0.6 ? -1 : 1;
+    // Finish the side in hand before switching, so leftovers do not make it dither.
+    const keep = this.doze?.side;
+    const side: -1 | 1 = keep === -1 ? (leftWork > 0.3 ? -1 : 1) : keep === 1 ? (rightWork > 0.3 || leftWork < 0.6 ? 1 : -1) : leftWork > 0.6 ? -1 : 1;
     if (side === 1 && rightWork < 0.6 && leftWork < 0.6) {
       this.phase = 'done';
       return [];
