@@ -3,6 +3,7 @@ import { formatMoney } from '../../core/format';
 import { CONTRACTS, getContract } from '../../data/contracts';
 import { MACHINES, isMachineId, type MachineId } from '../../data/fleet';
 import { Job, type MovePlan, type PlanOptions } from '../../game/moves';
+import { targetsFor, type Target } from '../../game/targets';
 import { applyRun, defaultLoadout, isUnlocked, kitOf } from '../../game/progression';
 import { computePayout, objectives, type Payout } from '../../game/scoring';
 import type { Bounds } from '../../render/camera';
@@ -11,7 +12,7 @@ import { KX, KY } from '../../render/paint';
 import { SceneRenderer, type Floater } from '../../render/scene';
 import { WreckFx } from '../../wreck/fx';
 import { siteStatus, type SiteStatus } from '../../wreck/job';
-import { DT, HEIGHTMAP, PIECE_STANDING, prepare, type WreckEvent } from '../../wreck/sim';
+import { DT, HEIGHTMAP, PIECE_STANDING, heightAt, prepare, type WreckEvent } from '../../wreck/sim';
 import type { PieceDef } from '../../wreck/structure';
 import type { ChargeKind } from '../../wreck/tools';
 import { h } from '../dom';
@@ -22,12 +23,22 @@ import { sheet, stars } from './common';
 
 const VERB: Record<MovePlan['action'], string> = { swing: 'Swing', drop: 'Drop', charge: 'Set charge', uncharge: 'Take it off', detonate: 'Fire', excavate: 'Crunch', push: 'Push', scoop: 'Scoop' };
 
-const HINT: Record<MachineId, string> = {
-  ball: 'Tap the part of the building to hit. Low, load-bearing parts do the most.',
-  charges: 'Tap a column, wall or slab to set a charge. Fire them all at once when you are ready.',
-  excavator: 'Tap a spot within reach: the excavator drives over and takes three bites.',
-  dozer: 'Tap the rubble to push it. The arrow shows where the pile ends up.',
-  loader: 'Tap a heap or a piece of salvage to scoop it and haul it off.',
+/** What the glowing targets are, per machine: the first step of every move. */
+const TAP: Record<MachineId, string> = {
+  ball: 'Tap a glowing column or wall to swing at it',
+  charges: 'Tap a glowing column or wall to strap a charge on',
+  excavator: 'Tap a glowing part within reach to crunch it',
+  dozer: 'Tap a marked heap of rubble to push it',
+  loader: 'Tap a marked heap or relic to scoop it up',
+};
+
+/** The last step: what pressing the button does. */
+const THEN: Record<MachineId, string> = {
+  ball: 'Press Swing. Low, load-bearing parts bring the most down',
+  charges: 'Press Set charge, then Fire when they are all on. Firing is free',
+  excavator: 'Press Crunch: it drives over and takes three bites',
+  dozer: 'Pick left or right, then press Push',
+  loader: 'Press Scoop: it carries the load to the pad or the pit',
 };
 
 const ACTING: Record<MachineId, string> = { ball: 'Swinging', charges: 'Fuses burning', excavator: 'Crunching', dozer: 'Pushing', loader: 'Hauling' };
@@ -62,6 +73,7 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
   let drop = false;
   let dirOverride: 1 | -1 | undefined;
   let inspect = -1;
+  let targets: Target[] = [];
   let stress = false;
   let speed = 1;
   let finished = false;
@@ -138,11 +150,32 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
       machine = m;
       clearPlan();
       inspect = -1;
+      targets = targetsFor(sim, m);
       if (job.left(m) <= 0 && !(m === 'charges' && job.placedCharges > 0)) app.toast(`No ${MACHINES[m].moves} left.`);
+      showMachine(m);
     }
     app.play('select');
     app.buzz(8);
     render();
+  }
+
+  /** Bring the machine in hand and what it can reach into view. */
+  function showMachine(m: MachineId): void {
+    if (performance.now() - lastUserCam < 1500) return;
+    const s2 = sim.state;
+    const xs: number[] = targets.map((t) => t.x);
+    if (m === 'ball') xs.push(s2.ball.x);
+    else if (m === 'excavator') xs.push(s2.exc.x);
+    else if (m === 'dozer') xs.push(s2.dozer.x);
+    else if (m === 'loader') xs.push(s2.loader.x);
+    if (!xs.length) return;
+    // Only move the view when something the player needs is off screen.
+    const w = renderer.width;
+    if (xs.every((x) => {
+      const q = camera.worldToScreen(x, 0).x;
+      return q > 12 && q < w - 12;
+    })) return;
+    camera.animateFit(union(workBounds(), xs), 0, app.reducedMotion ? 1 : 550, performance.now());
   }
 
   function clearPlan(): void {
@@ -190,6 +223,17 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
     lastTap = { x: at.x, y: at.y };
     dirOverride = undefined;
     plan = job.plan(machine, at.x, at.y, { ...opts(), piece: machine === 'charges' && at.piece >= 0 ? at.piece : undefined });
+    // A near miss on a phone: snap to the closest target under the thumb.
+    if (!plan.ok || (at.piece < 0 && machine !== 'dozer' && machine !== 'loader')) {
+      const near = nearestTarget(sx, sy, 56);
+      if (near) {
+        const snapped = job.plan(machine, near.x, near.y, { ...opts(), piece: machine === 'charges' ? near.piece : undefined });
+        if (snapped.ok) {
+          plan = snapped;
+          lastTap = { x: near.x, y: near.y };
+        }
+      }
+    }
     if (plan.ok) {
       app.play('tap');
       app.buzz(6);
@@ -199,6 +243,29 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
       app.buzz([10, 30, 10]);
     }
     render();
+  }
+
+  function targetScreen(t: Target): { x: number; y: number } {
+    if (t.ground) {
+      const z = D * 0.3;
+      const top = heightAt(sim.state.heightmap, t.x);
+      return camera.worldToScreen(t.x + z * KX, top + z * KY);
+    }
+    return camera.worldToScreen(t.x, t.y);
+  }
+
+  function nearestTarget(sx: number, sy: number, maxPx: number): Target | undefined {
+    let best: Target | undefined;
+    let bd = maxPx;
+    for (const t of targets) {
+      const q = targetScreen(t);
+      const d = Math.hypot(q.x - sx, q.y - sy);
+      if (d < bd) {
+        bd = d;
+        best = t;
+      }
+    }
+    return best;
   }
 
   function confirm(): void {
@@ -333,7 +400,7 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
         const flaw = sim.state.flaw[inspect] === 2 ? hd.building.flaws.find((f) => f.label === p.label)?.note : undefined;
         const text = p.carriesOthers ? `Carries ${Math.round(load)} t, at ${Math.round(st * 100)}% of its limit.${flaw ? ` Weak point: ${flaw}.` : ''}` : `Cladding: carries nothing, just hangs on the frame.${flaw ? ` Weak point: ${flaw}.` : ''}`;
         panel.append(h('div', { class: 'ap-text' }, h('strong', { text: p.label }), h('span', { text })));
-      } else panel.append(h('div', { class: 'ap-text' }, h('strong', { text: 'Pick a machine' }), h('span', { class: 'muted', text: 'Or tap the building to see what each part carries.' })));
+      } else panel.append(h('div', { class: 'ap-text' }, h('strong', { text: 'Pick a machine below' }), h('span', { class: 'muted', text: 'Each one shows what it can do when you pick it. Or tap the building to see what each part carries.' })));
       return;
     }
     const m = machine;
@@ -388,7 +455,20 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
     }
     if (!plan) {
       const left = job.left(m);
-      panel.append(h('div', { class: 'ap-text' }, h('strong', { text: `${MACHINES[m].name} · ${left} ${left === 1 ? MACHINES[m].move : MACHINES[m].moves} left` }), h('span', { class: 'muted', text: left > 0 || (m === 'charges' && job.placedCharges) ? HINT[m] : `Out of ${MACHINES[m].moves}. Pick another machine.` })));
+      const can = left > 0 || (m === 'charges' && job.placedCharges > 0);
+      panel.append(h('div', { class: 'ap-text' }, h('strong', { text: `${MACHINES[m].name} · ${left} ${left === 1 ? MACHINES[m].move : MACHINES[m].moves} left` })));
+      if (!can) panel.append(h('p', { class: 'ap-out', text: `Out of ${MACHINES[m].moves}. Pick another machine below.` }));
+      else if (left > 0 && !targets.length) panel.append(h('p', { class: 'ap-out', text: m === 'dozer' || m === 'loader' ? 'Nothing to clear yet. Bring something down first.' : 'Nothing it can reach right now. Try another machine.' }));
+      else if (left > 0)
+        panel.append(
+          h(
+            'ol',
+            { class: 'steps' },
+            h('li', {}, h('b', { text: '1' }), h('span', { text: TAP[m] })),
+            h('li', {}, h('b', { text: '2' }), h('span', { text: 'Check the preview: it shows what will happen' })),
+            h('li', {}, h('b', { text: '3' }), h('span', { text: THEN[m] })),
+          ),
+        );
       if (extras.length) panel.append(h('div', { class: 'ap-extras' }, ...extras));
       return;
     }
@@ -400,21 +480,28 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
     }
     const costText = p.cost > 0 ? `${p.cost} ${p.cost === 1 ? MACHINES[p.machine].move : MACHINES[p.machine].moves}` : p.cost < 0 ? `+${-p.cost} back` : 'free';
     const actions = h('div', { class: 'ap-actions' });
-    if (p.machine === 'dozer' && p.arrow) {
-      actions.append(
+    if (p.machine === 'dozer' && p.arrow && lastTap) {
+      // Both directions, spelled out: where the pile ends up each way.
+      const cur = Math.sign(p.arrow.stop - p.arrow.from) as 1 | -1;
+      const at = lastTap;
+      const where = (d: 1 | -1): string => {
+        const alt = d === cur ? p : job.plan('dozer', at.x, 0, { dir: d });
+        return !alt.ok ? 'blocked' : alt.title.includes('pit') ? 'to the pit' : alt.title.includes('pad') ? 'to the pad' : 'across';
+      };
+      const dirBtn = (d: 1 | -1): HTMLElement =>
         h('button', {
-          class: 'btn ghost icon-only',
-          'aria-label': 'Push the other way',
-          html: ICON.flip,
+          class: d === cur ? 'on' : '',
+          'aria-pressed': String(d === cur),
+          text: d < 0 ? `◀ Left, ${where(-1)}` : `Right, ${where(1)} ▶`,
           onClick: () => {
-            const cur = Math.sign(p.arrow!.stop - p.arrow!.from) as 1 | -1;
-            dirOverride = (cur > 0 ? -1 : 1) as 1 | -1;
+            if (d === cur) return;
+            dirOverride = d;
             replan();
             app.play('tap');
             render();
           },
-        }),
-      );
+        });
+      panel.append(h('div', { class: 'seg dir', role: 'group', 'aria-label': 'Push direction' }, dirBtn(-1), dirBtn(1)));
     }
     actions.append(h('button', { class: 'btn ghost', text: 'Cancel', onClick: () => (clearPlan(), app.play('tap'), render()) }));
     const go = h('button', { class: `btn primary confirm${tutorialFocus() === 'confirm' ? ' pulse' : ''}`, disabled: busy && p.action !== 'charge' && p.action !== 'uncharge', onClick: () => confirm() }, h('span', { text: VERB[p.action] }), h('span', { class: 'cost', text: costText }));
@@ -883,6 +970,7 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
     if (job.ready !== wasReady) {
       wasReady = job.ready;
       if (job.ready) {
+        if (machine) targets = targetsFor(sim, machine);
         if (plan) replan();
         if (speed > 1 && !app.reducedMotion) speed = 1;
         reframe();
@@ -919,6 +1007,8 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
       floaters,
       clear: status.clear,
       machines: crew,
+      targets: machine && job.ready && !finished ? targets : undefined,
+      planLabel: plan ? (plan.ok ? `${VERB[plan.action].toUpperCase()} HERE` : 'CAN’T DO THAT') : undefined,
     });
     raf = requestAnimationFrame(frame);
   }

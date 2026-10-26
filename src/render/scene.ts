@@ -1,5 +1,6 @@
 import type { MachineId } from '../data/fleet';
 import type { MovePlan } from '../game/moves';
+import type { Target } from '../game/targets';
 import type { Camera } from './camera';
 import type { BuildingDef as Building, Setting } from '../wreck/buildings';
 import type { WreckFx } from '../wreck/fx';
@@ -43,6 +44,10 @@ export interface DrawOptions {
   site?: boolean;
   /** Machines on this job (others stay parked off site). */
   machines?: MachineId[];
+  /** What the selected machine can be pointed at. */
+  targets?: Target[];
+  /** Verb shown on the preview target ("SWING", "PUSH"). */
+  planLabel?: string;
 }
 
 interface Palette {
@@ -202,12 +207,15 @@ export class SceneRenderer {
     this.drawSoil(ctx, pal, view);
     if (site) {
       this.drawCharges(ctx, sim, opt.time);
+      if (opt.machine) this.drawSpotlight(ctx, sim, opt.machine, opt.time);
+      if (opt.targets && !opt.plan) this.drawTargets(ctx, sim, opt.targets, D, opt.time, s);
       if (opt.plan) this.drawPlan(ctx, sim, opt.plan, D, opt.time);
       if (opt.inspect !== undefined && opt.inspect >= 0) this.outline(ctx, sim, opt.inspect, D, '#ffffff', 0.12);
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (site) {
       this.drawFlaws(ctx, sim, cam, opt.time);
+      if (opt.plan && opt.planLabel) this.drawPlanLabel(ctx, cam, opt.plan, opt.planLabel, D);
       if (opt.floaters?.length) this.drawFloaters(ctx, cam, opt.floaters, opt.now);
     }
   }
@@ -1072,6 +1080,110 @@ export class SceneRenderer {
     ctx.fillStyle = '#e2392b';
     ctx.fillText(text, 0, 2);
     ctx.restore();
+  }
+
+  /** A pulsing ring on the ground under the machine in hand, so you always know which one is selected. */
+  private drawSpotlight(ctx: Ctx, sim: WreckSim, m: MachineId, time: number): void {
+    const s = sim.state;
+    const x = m === 'ball' ? s.crane.baseX : m === 'excavator' ? s.exc.x : m === 'dozer' ? s.dozer.x : m === 'loader' ? s.loader.x : NaN;
+    if (!Number.isFinite(x)) return;
+    const r = (m === 'ball' ? 5.2 : 3.8) + Math.sin(time * 5) * 0.25;
+    const z = m === 'ball' ? 0 : -1.7;
+    ctx.strokeStyle = 'rgba(242,183,5,0.95)';
+    ctx.lineWidth = 0.22;
+    ctx.beginPath();
+    ctx.ellipse(px(x, z), py(0.05, z), r, r * KY * 1.4, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(242,183,5,0.16)';
+    ctx.fill();
+  }
+
+  /** Every valid target for the machine in hand, before the player taps. */
+  private drawTargets(ctx: Ctx, sim: WreckSim, targets: Target[], D: number, time: number, scale: number): void {
+    const pulse = 0.5 + Math.sin(time * 4) * 0.5;
+    // Markers keep a fixed size on screen, so they read at any zoom.
+    const dot = 7 / scale;
+    for (const t of targets) {
+      if (t.piece !== undefined) {
+        const p = sim.def.pieces[t.piece];
+        if (!p) continue;
+        ctx.fillStyle = `rgba(255,214,90,${0.18 + pulse * 0.14})`;
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        ctx.strokeStyle = `rgba(255,214,90,${0.6 + pulse * 0.4})`;
+        ctx.lineWidth = Math.max(0.1, 2 / scale);
+        ctx.strokeRect(p.x, p.y, p.w, p.h);
+        ctx.fillStyle = '#151515';
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, dot * 1.25, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffd23f';
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, dot * (0.8 + pulse * 0.2), 0, Math.PI * 2);
+        ctx.fill();
+        continue;
+      }
+      if (!t.ground) {
+        ctx.strokeStyle = `rgba(255,214,90,${0.5 + pulse * 0.4})`;
+        ctx.lineWidth = 0.14;
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, 1.1, 0, Math.PI * 2);
+        ctx.stroke();
+        continue;
+      }
+      // Ground: a ring on the heap and a bouncing arrow over it.
+      const z = D * 0.3;
+      const top = heightAt(sim.state.heightmap, t.x) + 0.4;
+      const col = t.valuable ? '255,196,40' : '255,236,180';
+      ctx.strokeStyle = `rgba(${col},${0.6 + pulse * 0.35})`;
+      ctx.lineWidth = 0.16;
+      ctx.beginPath();
+      ctx.ellipse(px(t.x, z), py(top - 0.3, z), 1.6, 0.7, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      const bob = Math.sin(time * 5 + t.x) * 0.35;
+      const ay = top + 2.2 + bob;
+      ctx.fillStyle = `rgba(${col},0.95)`;
+      ctx.beginPath();
+      ctx.moveTo(px(t.x - 0.7, z), py(ay + 0.9, z));
+      ctx.lineTo(px(t.x + 0.7, z), py(ay + 0.9, z));
+      ctx.lineTo(px(t.x, z), py(ay, z));
+      ctx.fill();
+    }
+  }
+
+  /** The verb of the previewed move, in a pill on the target. */
+  private drawPlanLabel(ctx: Ctx, cam: Camera, plan: MovePlan, label: string, D: number): void {
+    let wx: number | undefined;
+    let wy = 0;
+    if (plan.hitX !== undefined && plan.hitY !== undefined) {
+      wx = plan.hitX;
+      wy = plan.hitY + 1.6;
+    } else if (plan.jaw) {
+      wx = plan.jaw.x;
+      wy = plan.jaw.y + 1.8;
+    } else if (plan.arrow) {
+      wx = px((plan.arrow.from + plan.arrow.stop) / 2, -1.6);
+      wy = py(2.2, -1.6);
+    } else if (plan.scoop) {
+      wx = px(plan.scoop.x, D * 0.3);
+      wy = py(3, D * 0.3);
+    }
+    if (wx === undefined) return;
+    const q = cam.worldToScreen(wx, wy);
+    ctx.font = `800 15px ${FONT}`;
+    const w = ctx.measureText(label).width + 20;
+    const x = Math.max(w / 2 + 6, Math.min(this.width - w / 2 - 6, q.x));
+    const y = Math.max(20, q.y - 14);
+    ctx.fillStyle = plan.ok ? '#f2b705' : '#df5f3e';
+    ctx.beginPath();
+    ctx.roundRect(x - w / 2, y - 13, w, 26, 13);
+    ctx.fill();
+    ctx.strokeStyle = '#151515';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = '#151515';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x, y + 1);
   }
 
   private outline(ctx: Ctx, sim: WreckSim, id: number, D: number, color: string, width: number): void {
