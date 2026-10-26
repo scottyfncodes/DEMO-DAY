@@ -37,7 +37,7 @@ export function titleScreen(app: App): ScreenInstance {
   const start = h(
     'button',
     { class: 'btn primary xl', onClick: () => go() },
-    h('span', { class: 'btn-label', text: first ? 'Start your first job' : 'Next job' }),
+    h('span', { class: 'btn-label', text: first ? 'Take the first call' : 'Next call-out' }),
     h('span', { class: 'btn-sub', text: `${next.number} · ${next.title}` }),
   );
   const go = (): void => {
@@ -57,7 +57,8 @@ export function titleScreen(app: App): ScreenInstance {
       'header',
       { class: 'title-head' },
       h('h1', { class: 'wordmark' }, h('span', { text: 'DEMO' }), h('span', { class: 'day', text: 'DAY' })),
-      h('p', { class: 'tagline', text: 'Plan the job. Spend every move well. Bring it down, clear it, get paid.' }),
+      h('span', { class: 'title-stamp', text: 'Super-incident cleanup' }),
+      h('p', { class: 'tagline', text: 'The heroes saved the city. Somebody has to clean it up.' }),
     ),
     h(
       'section',

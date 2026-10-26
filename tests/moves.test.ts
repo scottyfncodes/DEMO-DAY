@@ -131,6 +131,11 @@ describe('move budgets', () => {
     expect(job.outOfMoves).toBe(true);
   });
 
+  it('machines left off the job stay off site, so nothing can hit them', () => {
+    const job = newJob();
+    expect(job.sim.state.offsite).toEqual(['excavator', 'loader']);
+  });
+
   it('a new job always starts on fresh budgets', () => {
     const one = newJob();
     const col = piece(one, 'Column A · floor 1');

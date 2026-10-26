@@ -121,6 +121,7 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
   }
   const bottom = h('footer', { class: 'hud-bottom' }, coach, finishBar, panel, bar);
   const el = h('main', { class: 'screen play' }, canvas, top, bottom);
+  queueMicrotask(() => el.append(banner));
 
   // ----------------------------------------------------------- helpers
   const floater = (text: string, x: number, y: number, tone: Floater['tone'] = 'gold', big = false): void => {
@@ -562,8 +563,9 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
     const body = h(
       'div',
       { class: `sheet-body results ${p.success ? 'win' : 'lose'}` },
+      h('p', { class: 'invoice-head', text: `Invoice · ${contract.client}` }),
       h('p', { class: 'eyebrow', text: `${contract.number} · ${contract.title}` }),
-      h('h2', { text: p.success ? 'Job done' : 'Job not finished' }),
+      h('h2', { text: p.success ? 'Cleaned up' : 'Still a disaster' }),
       p.success ? stars(p.stars) : h('p', { class: 'why', text: why }),
       h('p', { class: 'muted small', text: `${p.used} moves · ${Math.round((1 - p.status.standing) * 100)}% down · ${Math.round(p.status.clear * 100)}% clear${p.status.collateral > 0.05 ? ` · ${p.status.collateral.toFixed(1)} m² next door` : ''}` }),
       lines,
@@ -598,14 +600,14 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
   // ----------------------------------------------------------- tutorial
   const pier = hd.def.pieces.find((p) => p.label === 'Column A · floor 1')?.id ?? -1;
   const STEPS: Step[] = [
-    { text: 'This is the Corner Store. Tap the brick pier on the left corner to see what it carries.', done: () => inspect === pier, focus: 'pier' },
+    { text: 'Captain Volt landed here. Twice. Tap the cracked brick pier on the left corner to see what it is still holding up.', done: () => inspect === pier, focus: 'pier' },
     { text: 'That pier holds up the whole corner. Pick the crane below.', done: () => machine === 'ball' || job.moves.length > 0, focus: 'ball' },
     { text: 'Tap the pier to aim the wrecking ball.', done: () => (!!plan && plan.ok && plan.machine === 'ball') || job.moves.length > 0, focus: 'pier' },
     { text: 'The preview shows where the ball lands and what it will do. Swing.', done: () => job.moves.length > 0, focus: 'confirm' },
     { text: 'One swing spent, shown on the crane’s counter. Watch what that pier was holding.', done: () => job.ready },
     { text: 'Bring the rest down. Aim low, at whatever still carries the roof.', done: () => status.standing <= contract.downAt },
     { text: 'Down. Now clear the lot: pick the dozer.', done: () => machine === 'dozer' || job.moves.some((m) => m.machine === 'dozer'), focus: 'dozer' },
-    { text: 'Tap the rubble and push it into the haul pit on the right.', done: () => job.moves.some((m) => m.machine === 'dozer') },
+    { text: 'Tap the rubble and push it into the haul pit on the right. Volt’s shield pays on the salvage pad, so push it left later.', done: () => job.moves.some((m) => m.machine === 'dozer') },
     { text: `Keep pushing until the lot is ${Math.round(contract.clearAt * 100)}% clear.`, done: () => status.clear >= contract.clearAt },
     { text: 'Job done. Tap Finish to get paid.', done: () => finished },
   ];
@@ -654,6 +656,43 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
     }
   }
 
+  // ------------------------------------------------------------ mayhem
+  const WORDS = {
+    hit: ['WHAM!', 'KRAK!', 'THOOM!', 'SMASH!', 'BLAMM!'],
+    blast: ['KA-BOOM!', 'KRA-KOOM!', 'BOOOM!'],
+    fall: ['TIMBERRR!', 'KRRRUNCH!', 'KA-RUMBLE!'],
+    land: ['WHUMP!', 'KRASH!'],
+  };
+  let lastComic = 0;
+  let wordN = 0;
+  let slowmo = 0;
+  const comic = (set: keyof typeof WORDS, x: number, y: number, big = false): void => {
+    const now = performance.now();
+    if (now - lastComic < 700) return;
+    lastComic = now;
+    const list = WORDS[set];
+    floater(list[wordN++ % list.length] as string, x, y, 'comic', big);
+  };
+  const slow = (seconds: number): void => {
+    if (!app.reducedMotion) slowmo = Math.max(slowmo, seconds);
+  };
+  const banner = h('div', { class: 'mayhem-banner', 'aria-live': 'polite' });
+  const TITLES: Array<[number, string]> = [
+    [40, 'They will see this from space'],
+    [30, 'City-level event'],
+    [20, 'Total mayhem'],
+    [15, 'Structural chaos'],
+    [10, 'Domino effect'],
+    [5, 'Chain reaction'],
+  ];
+  const announce = (title: string, sub: string): void => {
+    banner.textContent = '';
+    banner.append(h('b', { text: title }), h('span', { text: sub }));
+    banner.classList.remove('show');
+    void banner.offsetWidth;
+    banner.classList.add('show');
+  };
+
   // ------------------------------------------------------------- events
   function react(events: WreckEvent[]): void {
     fx.ingest(events, sim);
@@ -668,7 +707,7 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
             hitstop = Math.max(hitstop, 0.04 + k * 0.07);
             app.buzz(Math.round(18 + k * 40));
           }
-          if (e.destroyed && e.piece >= 0 && e.energy > 100) floater('Smashed', e.x, e.y + 1.5, 'white');
+          if (e.energy > 220) comic('hit', e.x, e.y, k > 0.7);
           break;
         }
         case 'crack':
@@ -681,6 +720,10 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
           if (e.material === 'glass') app.play('glass', 0.35);
           break;
         case 'detach':
+          if (e.mass > 80) {
+            comic('fall', e.x, e.y + 3, e.mass > 300);
+            slow(e.mass > 300 ? 1.1 : 0.6);
+          }
           if (e.mass > 120) {
             app.play('failMajor', 1, 'concrete');
             app.buzz([30, 30, 60]);
@@ -689,6 +732,7 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
           break;
         case 'land':
           if (e.mass > 100) {
+            comic('land', e.x, e.y + 2, e.mass > 400);
             app.play('heavyLanding', 1);
             app.buzz(50);
           } else if (e.mass > 12) app.play('impact', Math.min(1, e.mass / 100));
@@ -701,6 +745,8 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
           app.play('detonate', e.kind === 'blast' ? 1 : 0.8, e.kind === 'blast' ? 'heavy' : 'shaped');
           app.buzz(e.kind === 'blast' ? [40, 20, 60] : 40);
           hitstop = Math.max(hitstop, 0.06);
+          comic('blast', e.x, e.y + 2, true);
+          slow(0.5);
           if (e.cause === 'ball') floater('The ball set it off', e.x, e.y + 2, 'gold', true);
           else if (e.cause === 'debris') floater('Debris set it off', e.x, e.y + 2);
           break;
@@ -717,6 +763,7 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
             app.buzz(14);
           }
           if (e.target === 'vault') floater('Careful: that is the prize', e.x, e.y + 1.5, 'red');
+          if (e.target === 'relic') floater('Hero-grade. The jaws skid off', e.x, e.y + 1.5, 'white');
           break;
         case 'blockBreak':
           app.play('crack', 0.9, e.material === 'steel' ? 'steel' : 'concrete');
@@ -733,7 +780,16 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
           if (e.area > 0.2) floater(`${e.area.toFixed(1)} m² hauled`, e.x, e.y + 1, 'white');
           break;
         case 'salvage':
-          if (e.kind === 'vault') {
+          if (e.kind === 'relic') {
+            if (e.where === 'pad') {
+              floater(`+${formatMoney(e.value)} hero salvage`, e.x, e.y + 2.5, 'gold', true);
+              announce('Relic recovered', `${formatMoney(e.value)} from the Bureau`);
+              app.play('newBest');
+            } else {
+              floater('Relic lost in the pit', e.x, e.y + 2, 'red', true);
+              app.play('fail');
+            }
+          } else if (e.kind === 'vault') {
             if (e.where === 'pad') {
               floater(`${hd.building.prize?.label ?? 'Prize'} recovered`, e.x, e.y + 2.5, 'gold', true);
               app.play('newBest');
@@ -770,11 +826,13 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
       if ((chainShown.get(rec.swing) ?? 0) >= step) continue;
       chainShown.set(rec.swing, step);
       floater(`Chain ×${step}`, rec.hitX || hd.def.bounds.maxX / 2, (rec.hitY || 6) + 3, 'gold', step >= 15);
+      const title = TITLES.find(([n]) => step >= n);
+      if (title && (step === title[0] || step >= 40)) announce(title[1], `Chain ×${step}`);
       if (step >= 10) app.play('bonus');
     }
     if (s.tally.flawsExploited > flawsSeen) {
       flawsSeen = s.tally.flawsExploited;
-      floater('Weak point used', hd.def.bounds.maxX / 2, 8, 'gold');
+      floater('Weak point used', hd.def.bounds.minX + 1, hd.def.bounds.maxY + 2, 'gold');
     }
   }
 
@@ -800,7 +858,8 @@ export function playScreen(app: App, params: Record<string, string>): ScreenInst
     camera.insetBottom = bottom.offsetHeight + 6;
     if (hitstop > 0) hitstop -= dt;
     else {
-      acc += dt * speed;
+      slowmo = Math.max(0, slowmo - dt);
+      acc += dt * speed * (slowmo > 0 && speed === 1 ? 0.32 : 1);
       let steps = 0;
       while (acc >= DT && steps < 4 * speed) {
         react(job.step());

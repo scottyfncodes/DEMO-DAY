@@ -1,7 +1,7 @@
 {
   "name": "DEMO DAY",
   "short_name": "DEMO DAY",
-  "description": "A demolition strategy game. Every machine has a limited number of moves: bring the building down, clear the lot, get paid and upgrade your fleet.",
+  "description": "The heroes saved the city. Somebody has to clean it up. A demolition strategy game: limited moves per machine, battle-wrecked buildings, monster salvage.",
   "id": "demo-day",
   "start_url": "./",
   "scope": "./",

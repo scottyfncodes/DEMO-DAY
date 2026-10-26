@@ -176,6 +176,8 @@ export interface CraneOrder {
 
 export interface WreckState {
   kit: Kit;
+  /** Machines not on this job: they stay parked off site and nothing can hit them. */
+  offsite?: string[];
   craneOrder?: CraneOrder;
   loader: Loader;
   tick: number;
@@ -258,7 +260,7 @@ export type WreckEvent =
   | { type: 'arm'; count: number; root: number }
   | { type: 'blast'; x: number; y: number; kind: ChargeKind; cause: FireCause; root: number; piece: number }
   | { type: 'reveal'; piece: number }
-  | { type: 'bite'; x: number; y: number; piece: number; material: PieceMaterial; target: 'structure' | 'section' | 'block' | 'vault' | 'air' }
+  | { type: 'bite'; x: number; y: number; piece: number; material: PieceMaterial; target: 'structure' | 'section' | 'block' | 'vault' | 'air' | 'relic' }
   | { type: 'blockBreak'; x: number; y: number; material: PieceMaterial; mass: number }
   | { type: 'ram'; x: number; y: number; piece: number; material: PieceMaterial }
   | { type: 'salvage'; x: number; y: number; kind: Block['kind']; value: number; where: 'pad' | 'pit' }
@@ -428,7 +430,37 @@ export class WreckSim {
     this.def = h.def;
     this.state = state ?? initialState(h, kit);
     this.state.dirty = true;
+    if (!state) this.applyIncident();
     this.resolve();
+  }
+
+  /**
+   * The fight that happened before the crew arrived: parts already gone,
+   * parts cracked or frozen, debris on the lot and whatever got left behind.
+   * Part of the initial state, so replays and previews see the same site.
+   */
+  private applyIncident(): void {
+    const s = this.state;
+    const inc = this.h.building.incident;
+    const find = (label: string): PieceDef | undefined => this.def.pieces.find((p) => p.label === label);
+    if (inc.brittle) for (const p of this.def.pieces) s.hp[p.id] = (s.hp[p.id] as number) * (1 - inc.brittle);
+    for (const [label, lost] of inc.damaged) {
+      const p = find(label);
+      if (p) s.hp[p.id] = Math.min(s.hp[p.id] as number, p.hp * (1 - lost));
+    }
+    for (const label of inc.gone) {
+      const p = find(label);
+      if (!p || s.status[p.id] !== PIECE_STANDING) continue;
+      s.status[p.id] = PIECE_GONE;
+      s.hp[p.id] = 0;
+      s.standingMass -= p.mass;
+      if (s.flaw[p.id]) s.flaw[p.id] = 0;
+    }
+    for (const [x, area] of inc.debris) this.depositMound(x, 2.2, area);
+    for (const r of inc.relics) {
+      s.blocks.push({ id: s.nextBlockId++, kind: 'relic', label: r.label, material: 'steel', x: r.x, y: Math.max(0, heightAt(s.heightmap, r.x)), w: r.w, h: r.h, mass: r.mass, hp: 1e9, maxHp: 1e9, area: r.w * r.h * 0.2, seed: Math.round(r.x * 31) >>> 0, look: r.look, value: r.value });
+    }
+    s.dirty = true;
   }
 
   snapshot(): WreckState {

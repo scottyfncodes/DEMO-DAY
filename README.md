@@ -1,6 +1,8 @@
 # DEMO DAY
 
-A mobile-first demolition strategy game for the browser. Take a contract, pick your crew, bring the building down, clear the lot, recover what is worth money, get paid, and upgrade your fleet for the next, bigger job.
+A mobile-first demolition strategy game for the browser. The heroes saved the city; you are the crew that cleans up after them. Every call-out is a building wrecked by a superhero fight, a villain or a kaiju: bring it down, clear the lot, haul the monster and mech remains to the salvage pad, get paid, and upgrade your fleet for the next, bigger disaster.
+
+Buildings start battle-damaged (holes punched by a landing hero, a mech arm through a roof, a frozen street, a tentacle still round the silo, fires), with debris and relics already on the lot. Relics can't be broken: lift or push them onto the pad for hero salvage, or lose them in the pit. Big hits get comic-book impacts, shockwaves and fireballs, large collapses drop into slow motion, and long chain reactions earn mayhem banners (all of it toned down with Reduce motion).
 
 **Play it:** https://scottyfncodes.github.io/DEMO-DAY/
 
@@ -30,14 +32,14 @@ The tools feed each other: charges and the ball bring it down, the excavator bre
 
 | Job | Building | The problem |
 | --- | --- | --- |
-| 01 | Corner Store | Training job: one good swing, then clear it |
-| 02 | Halsey Auto | Steel frame; the truss steel pays on the salvage pad |
-| 03 | No. 12 Maple Street | A floor safe to recover from a timber house next to No. 14 |
-| 04 | Holloway Silo | 27 m of concrete, the farmhouse 10 m away: it must fall the other way |
-| 05 | Ironworks Stack | A 36 m chimney the boom cannot reach the top of, beside a pump house that must not be touched |
-| 06 | Riverside Stores | A stair core that holds the middle up, and a ship's bell inside it |
-| 07 | Market Street Parkade | Five decks of heavy slabs the dozer cannot push until they are broken |
-| 08 | The Halden Exchange | Fifteen storeys, a core, a cantilevered wing and a vault, next to Pellow's Bakery |
+| 01 | Corner Store | Captain Volt landed on it, twice. Training job |
+| 02 | Halsey Auto | TITAN-9's arm is still in the roof; every bit of mech pays |
+| 03 | No. 12 Maple Street | Frozen solid by Frostbyte; a floor safe to recover, No. 14 next door |
+| 04 | Holloway Silo | Gorrath's tentacle still wrapped round it; the farmhouse 10 m away |
+| 05 | Ironworks Stack | Gorrath's toothpick: 36 m of cracked brick beside a pump house that must not be touched |
+| 06 | Riverside Stores | A villain thrown through two floors; a ship's bell in the stair core |
+| 07 | Market Street Parkade | Gorrath sat on it; a scale and a claw to recover, slabs too heavy to push |
+| 08 | The Halden Exchange | The final battle: burning upper floors, a mech reactor core, and a kaiju egg in the vault |
 
 Each job has primary objectives (bring it down, clear the lot, and on some jobs keep debris off the neighbour) and bonus objectives. The payout sheet lists every line: the contract fee and each bonus are **paid once**; replays pay for salvage, prizes, recycled rubble and moves to spare, minus damage next door and machine repairs. Stars: finish, meet every bonus, come in at or under the move par.
 

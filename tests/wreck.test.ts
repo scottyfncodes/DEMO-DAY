@@ -74,12 +74,13 @@ describe('structure and load solver', () => {
 describe('wrecking ball simulation', () => {
   it('damages only the region it strikes', () => {
     const sim = new WreckSim();
+    const start = Float32Array.from(sim.state.hp);
     swing(sim, 12, 46, -14, -6, 3);
     const rec = sim.state.roots[1];
     expect(rec?.hitPiece).toBeGreaterThanOrEqual(0);
     const hit = H.def.pieces[rec?.hitPiece as number] as PieceDef;
     for (const p of H.def.pieces) {
-      const lost = (sim.state.hp[p.id] as number) < p.hp;
+      const lost = (sim.state.hp[p.id] as number) < (start[p.id] as number);
       if (!lost || sim.state.status[p.id] !== PIECE_STANDING) continue;
       const d = Math.hypot(p.x + p.w / 2 - (hit.x + hit.w / 2), p.y + p.h / 2 - (hit.y + hit.h / 2));
       expect(d).toBeLessThan(8);

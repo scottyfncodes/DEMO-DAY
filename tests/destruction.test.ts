@@ -48,7 +48,7 @@ describe('destruction', () => {
 
   it('a hit far from the supports does far less than a hit on them', () => {
     const j = job('warehouse', ['ball']);
-    const sign = piece(j, 'Brick bay B–C · floor 2');
+    const sign = piece(j, 'Brick bay E–F · floor 2');
     j.commit(j.plan('ball', sign.x + sign.w / 2, sign.y + 1.5));
     j.settle();
     expect(j.sim.standingFraction).toBeGreaterThan(0.8);
@@ -114,10 +114,12 @@ describe('destruction', () => {
 
   it('the base loader cannot lift what the heavy-lift arms can', () => {
     const base = job('house', ['loader']);
+    base.sim.state.heightmap.fill(0);
     for (const p of base.sim.def.pieces) base.sim.state.status[p.id] = 2;
     base.sim.state.blocks.push({ id: 97, kind: 'steel', label: 'Truss steel', material: 'steel', x: 4, y: 0, w: 3, h: 0.6, mass: 12, hp: 400, maxHp: 400, area: 0, seed: 3 });
     expect(base.plan('loader', 4, 0).ok).toBe(false);
     const up = job('house', ['loader'], ['loader-power-1']);
+    up.sim.state.heightmap.fill(0);
     for (const p of up.sim.def.pieces) up.sim.state.status[p.id] = 2;
     up.sim.state.blocks.push({ id: 97, kind: 'steel', label: 'Truss steel', material: 'steel', x: 4, y: 0, w: 3, h: 0.6, mass: 12, hp: 400, maxHp: 400, area: 0, seed: 3 });
     expect(up.plan('loader', 4, 0).ok).toBe(true);

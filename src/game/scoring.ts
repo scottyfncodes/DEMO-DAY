@@ -48,6 +48,8 @@ export function bonusDone(b: BonusDef, st: SiteStatus, used: number): boolean {
       return st.steelSalvaged >= b.value;
     case 'moves':
       return used <= b.value;
+    case 'relics':
+      return st.relicsSaved >= b.value;
   }
 }
 
@@ -80,6 +82,9 @@ export function objectives(contract: ContractDef, st: SiteStatus, used: number, 
     } else if (b.kind === 'steel') {
       progress = `${st.steelSalvaged.toFixed(1)} / ${b.value} t`;
       fraction = Math.min(1, st.steelSalvaged / b.value);
+    } else if (b.kind === 'relics') {
+      progress = `${st.relicsSaved} / ${b.value}`;
+      fraction = Math.min(1, st.relicsSaved / b.value);
     } else if (b.kind === 'moves') {
       progress = `${used} used`;
       fraction = done ? 1 : 0;
@@ -152,6 +157,8 @@ export function computePayout(job: Job, prior: PriorRecord): Payout {
   if (t.steelSalvaged > 0.05) lines.push({ key: 'steel', label: 'Steel salvage', detail: `${t.steelSalvaged.toFixed(1)} t at $${RATES.steel}/t`, amount: Math.round(t.steelSalvaged * RATES.steel) });
   const prize = job.sim.h.building.prize;
   if (prize && t.vaultSaved >= 0) lines.push({ key: 'prize', label: prize.label, detail: `${Math.round(t.vaultSaved * 100)}% intact`, amount: Math.round(prize.value * t.vaultSaved) });
+  if (t.relicValue > 0) lines.push({ key: 'relics', label: 'Hero salvage', detail: `${t.relicsSaved} relic${t.relicsSaved === 1 ? '' : 's'} sold to the Bureau`, amount: Math.round(t.relicValue) });
+  if (t.relicsLost > 0) lines.push({ key: 'relics-lost', label: 'Relics lost in the pit', detail: `${t.relicsLost} gone to landfill`, amount: 0 });
   if (t.recycled > 0.05) lines.push({ key: 'recycled', label: 'Recycled aggregate', detail: `${t.recycled.toFixed(1)} m² at $${RATES.recycled}/m²`, amount: Math.round(t.recycled * RATES.recycled) });
   if (success) {
     let unused = 0;

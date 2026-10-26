@@ -37,7 +37,7 @@ async function main() {
   await page.waitForTimeout(1500);
   await snap(page, 'title');
 
-  await page.getByRole('button', { name: /Start your first job/ }).click();
+  await page.getByRole('button', { name: /Take the first call/ }).click();
   await page.waitForSelector('.brief');
   await snap(page, 'job-sheet');
   await page.getByRole('button', { name: 'Start the job' }).click();

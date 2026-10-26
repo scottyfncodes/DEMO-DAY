@@ -123,6 +123,7 @@ export class Job {
     this.contract = contract;
     this.loadout = [...new Set(loadout)];
     this.sim = new WreckSim(undefined, h, kit);
+    this.sim.state.offsite = (['excavator', 'dozer', 'loader'] as MachineId[]).filter((m) => !this.loadout.includes(m));
     for (const m of this.loadout) {
       const max = contract.budgets[m] ?? MACHINES[m].baseMoves;
       this.budgets[m] = { max, left: max };

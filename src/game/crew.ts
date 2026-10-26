@@ -125,11 +125,14 @@ function clearMove(job: Job): MovePlan | undefined {
         [lo - 0.3, 1],
         [hi + 0.3, -1],
         [(lo + hi) / 2, towardPit],
+        [(lo + hi) / 2, -towardPit as 1 | -1],
+        [lo + (hi - lo) * 0.75, -1],
+        [lo + (hi - lo) * 0.25, 1],
       ];
       for (const [x, dir] of tries) {
         const plan = job.plan('dozer', x, 0, { dir });
         const area = plan.ok ? Number(/^(\d+)/.exec(plan.detail)?.[1] ?? 0) : 0;
-        const ends = plan.title.includes('pit') || plan.title.includes('pad') ? 1.5 : 1;
+        const ends = plan.title.includes('pit') || plan.title.includes('pad') ? 4 : plan.detail.includes('Stops at') ? 0.3 : 1;
         if (plan.ok && area * ends > bestArea) {
           bestArea = area * ends;
           best = plan;
