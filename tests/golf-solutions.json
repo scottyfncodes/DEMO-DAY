@@ -116,6 +116,32 @@
     "pitch": 9.7289,
     "power": 0.86
    }
+  ],
+  "c10": [
+   {
+    "ball": "blast",
+    "yaw": -0.4145,
+    "pitch": 20.0227,
+    "power": 0.86,
+    "powerups": [
+     "golfers"
+    ]
+   },
+   {
+    "ball": "blast",
+    "yaw": 9.0503,
+    "pitch": 12.6725,
+    "power": 1,
+    "powerups": [
+     "drive"
+    ]
+   },
+   {
+    "ball": "blast",
+    "yaw": -10.5466,
+    "pitch": 19.4312,
+    "power": 1
+   }
   ]
  },
  "scoreAttack": [
