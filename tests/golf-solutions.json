@@ -118,5 +118,63 @@
    }
   ]
  },
- "scoreAttack": []
+ "scoreAttack": [
+  {
+   "ball": "blast",
+   "yaw": 0.8537,
+   "pitch": 21.5473,
+   "power": 0.9,
+   "powerups": [
+    "golfers"
+   ]
+  },
+  {
+   "ball": "multi",
+   "yaw": -10.1713,
+   "pitch": 27.5682,
+   "power": 0.9,
+   "powerups": [
+    "drive"
+   ]
+  },
+  {
+   "ball": "blast",
+   "yaw": 10.1838,
+   "pitch": 26.7942,
+   "power": 0.9
+  },
+  {
+   "ball": "standard",
+   "yaw": -11.0342,
+   "pitch": 20.338,
+   "power": 0.9,
+   "powerups": [
+    "ricochet"
+   ]
+  },
+  {
+   "ball": "standard",
+   "yaw": 14.0956,
+   "pitch": 11.837,
+   "power": 0.9
+  },
+  {
+   "ball": "super",
+   "yaw": 8.573,
+   "pitch": 19.5665,
+   "power": 0.9
+  },
+  {
+   "ball": "super",
+   "yaw": -7.6884,
+   "pitch": 18.1901,
+   "power": 0.9
+  },
+  {
+   "ball": "standard",
+   "yaw": 5.1428,
+   "pitch": 14.4592,
+   "power": 0.9
+  }
+ ]
 }
