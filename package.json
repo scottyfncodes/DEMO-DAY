@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "DEMO DAY — a mobile-first demolition puzzle game.",
+  "description": "DEMO DAY: golf-powered house demolition for the phone browser.",
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "dev": "vite",
@@ -13,12 +13,13 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "icons": "node scripts/generate-icons.mjs",
-    "smoke": "node scripts/smoke.mjs",
-    "tune": "vitest run --config scripts/vitest.tune.config.ts --reporter=verbose --disableConsoleIntercept",
+    "smoke": "node scripts/golf-smoke.mjs && node scripts/smoke.mjs",
+    "tune": "vitest run --config scripts/vitest.tune.config.ts --disableConsoleIntercept scripts/tune",
     "check": "pnpm typecheck && pnpm test && pnpm build"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",
+    "@types/three": "0.170.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.6",
     "vitest": "^4.1.11"
@@ -27,5 +28,8 @@
     "onlyBuiltDependencies": [
       "esbuild"
     ]
+  },
+  "dependencies": {
+    "three": "0.170.0"
   }
 }

@@ -53,11 +53,12 @@ export function titleScreen(app: App): ScreenInstance {
     { class: 'screen title' },
     canvas,
     h('div', { class: 'title-shade' }),
+    h('button', { class: 'icon-btn classic-back', 'aria-label': 'Back to golf', html: ICON.back, onClick: () => (app.play('tap'), app.go('title')) }),
     h(
       'header',
       { class: 'title-head' },
       h('h1', { class: 'wordmark' }, h('span', { text: 'DEMO' }), h('span', { class: 'day', text: 'DAY' })),
-      h('span', { class: 'title-stamp', text: 'Super-incident cleanup' }),
+      h('span', { class: 'title-stamp', text: 'Crew Contracts' }),
       h('p', { class: 'tagline', text: 'The heroes saved the city. Somebody has to clean it up.' }),
     ),
     h(

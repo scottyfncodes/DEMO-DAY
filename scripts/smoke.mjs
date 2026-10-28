@@ -1,4 +1,4 @@
-/* Plays DEMO DAY in headless Chromium at iPhone size and saves screenshots to
+/* Plays the Crew Contracts game (the original DEMO DAY) in headless Chromium at iPhone size and saves screenshots to
  * smoke-output/. The training job is played by touch (inspect, crane, swing,
  * dozer, finish), a purchase is made in the garage, and the save is checked
  * after a reload. Fails on page errors, a double-spent move or a lost save.
@@ -34,6 +34,8 @@ async function main() {
   await page.goto(BASE, { waitUntil: 'networkidle' });
   await page.evaluate(() => localStorage.clear());
   await page.reload({ waitUntil: 'networkidle' });
+  // The crew-contracts game now lives behind Levels > Crew Contracts.
+  await page.evaluate(() => window.__demoDay.go('classic'));
   await page.waitForTimeout(1500);
   await snap(page, 'title');
 

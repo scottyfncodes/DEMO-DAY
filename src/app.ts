@@ -1,8 +1,9 @@
 import { audio, type Cue, type Variant } from './audio/audio';
 import { SaveStore, type SaveData } from './game/save';
+import { GolfStore } from './golf/save';
 import { clear, h, haptic } from './ui/dom';
 
-export type ScreenName = 'title' | 'jobs' | 'brief' | 'play' | 'garage' | 'settings' | 'records';
+export type ScreenName = 'title' | 'levels' | 'golf' | 'golf-settings' | 'classic' | 'jobs' | 'brief' | 'play' | 'garage' | 'settings' | 'records';
 
 export interface ScreenInstance {
   el: HTMLElement;
@@ -19,6 +20,8 @@ export class App {
   readonly root: HTMLElement;
   readonly store: SaveStore;
   readonly audio = audio;
+  /** Golf progress (separate from the crew-contracts save). */
+  readonly golf: GolfStore;
   private screens = new Map<ScreenName, ScreenFactory>();
   private current?: ScreenInstance;
   currentName?: ScreenName;
@@ -27,6 +30,7 @@ export class App {
   constructor(root: HTMLElement, store = new SaveStore()) {
     this.root = root;
     this.store = store;
+    this.golf = new GolfStore();
     this.applySettings();
     const unlock = (): void => this.audio.unlock();
     window.addEventListener('pointerdown', unlock, { passive: true });

@@ -1,7 +1,7 @@
 {
   "name": "DEMO DAY",
   "short_name": "DEMO DAY",
-  "description": "The heroes saved the city. Somebody has to clean it up. A demolition strategy game: limited moves per machine, battle-wrecked buildings, monster salvage.",
+  "description": "Golf-powered house demolition. Knock out bricks, hit the seams, ricochet through the rooms and bring the roof down.",
   "id": "demo-day",
   "start_url": "./",
   "scope": "./",
