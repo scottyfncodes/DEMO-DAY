@@ -111,7 +111,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   const ballNote = h('p', { class: 'g-note' });
   const fireBtn = h('button', { class: 'g-fire', 'aria-label': 'Fire' }, h('span', { text: 'FIRE' }));
   const fastBtn = h('button', { class: 'btn ghost sm g-fast hidden', onClick: () => setFast(!fast) }, h('span', { class: 'icon', html: ICON.ff }), h('span', { text: 'Speed up' }));
-  const bottom = h('div', { class: 'g-bottom' }, ballNote, h('div', { class: 'g-controls' }, h('div', { class: 'g-pick' }, ballRow, puRow, power), fireBtn), fastBtn);
+  const bottom = h('div', { class: 'g-bottom' }, ballNote, h('div', { class: 'g-pick' }, ballRow, puRow), h('div', { class: 'g-controls' }, power, fireBtn), fastBtn);
 
   const shotCard = h('div', { class: 'g-shotcard', 'aria-live': 'polite' });
   const callouts = h('div', { class: 'g-callouts', 'aria-hidden': 'true' });
@@ -170,8 +170,8 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
             onClick: () => togglePowerup(p),
           },
           h('span', { class: 'icon', html: GICON[p] }),
-          h('span', { class: 'g-pu-name', text: active ? `${POWERUPS[p].name} · ${session.precisionLeft}` : POWERUPS[p].name }),
-          Number.isFinite(n) ? h('span', { class: 'g-count', text: String(n) }) : null,
+          h('span', { class: 'g-pu-name', text: POWERUPS[p].name }),
+          active ? h('span', { class: 'g-count', text: String(session.precisionLeft) }) : Number.isFinite(n) ? h('span', { class: 'g-count', text: String(n) }) : null,
         ),
       );
     }
