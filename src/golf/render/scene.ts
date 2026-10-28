@@ -96,6 +96,8 @@ export class GolfRenderer {
   private pathPhase: ViewState['phase'] = 'aim';
   private pathTick = 0;
   private landing: THREE.Mesh;
+  /** Where the next shot first touches something: shown on every shot. */
+  private landingDot: THREE.Group;
   private seamGlint: THREE.Mesh;
   private golfers: Array<{ body: THREE.Group; swing: THREE.Group; t: number; firing: boolean; delay: number }> = [];
   private birds: Array<{ g: THREE.Group; fled: boolean; vx: number; vy: number; vz: number; t: number }> = [];
@@ -164,6 +166,15 @@ export class GolfRenderer {
     this.landing.renderOrder = 6;
     this.landing.visible = false;
     this.scene.add(this.landing);
+    this.landingDot = new THREE.Group();
+    const rim = new THREE.Mesh(new THREE.CircleGeometry(0.11, 24), new THREE.MeshBasicMaterial({ color: 0x1d1603, depthTest: false, transparent: true, opacity: 0.85 }));
+    const dot = new THREE.Mesh(new THREE.CircleGeometry(0.075, 24), new THREE.MeshBasicMaterial({ color: 0xf2b705, depthTest: false, transparent: true }));
+    rim.renderOrder = 6;
+    dot.renderOrder = 7;
+    dot.position.z = 0.002;
+    this.landingDot.add(rim, dot);
+    this.landingDot.visible = false;
+    this.scene.add(this.landingDot);
     this.seamGlint = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true, opacity: 0.95 }));
     this.seamGlint.renderOrder = 6;
     this.seamGlint.visible = false;
@@ -626,6 +637,7 @@ export class GolfRenderer {
     const pred = view.prediction;
     const show = view.phase === 'aim' && !!pred;
     this.landing.visible = false;
+    this.landingDot.visible = false;
     this.seamGlint.visible = false;
     if (!show || !pred) {
       this.guideDots.count = 0;
@@ -657,6 +669,19 @@ export class GolfRenderer {
     this.guideDots.count = n;
     this.guideDots.instanceMatrix.needsUpdate = true;
     const c = pred.contact;
+    if (!view.guideFull) {
+      // The landing dot: on the first thing the ball touches, or on the lawn if it lands short.
+      const end = pts[pts.length - 1];
+      const at = c ? { x: c.px, y: c.py, z: c.pz, nx: c.nx, ny: c.ny, nz: c.nz } : end && end.y < 0.5 ? { x: end.x, y: 0, z: end.z, nx: 0, ny: 1, nz: 0 } : null;
+      if (at) {
+        this.landingDot.visible = true;
+        this.landingDot.position.set(at.x + at.nx * 0.03, at.y + at.ny * 0.03, at.z + at.nz * 0.03);
+        this.landingDot.lookAt(at.x + at.nx, at.y + at.ny, at.z + at.nz);
+        // Hold a steady size on screen (about 14 px across on a phone), wherever the camera is.
+        const k = Math.max(1, this.camera.position.distanceTo(this.landingDot.position) / 14);
+        this.landingDot.scale.setScalar(k * (1 + Math.sin(this.time * 4) * 0.06));
+      }
+    }
     if (view.guideFull && c) {
       this.landing.visible = true;
       this.landing.position.set(c.px + c.nx * 0.03, c.py + c.ny * 0.03, c.pz + c.nz * 0.03);

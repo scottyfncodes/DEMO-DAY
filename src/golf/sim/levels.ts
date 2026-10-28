@@ -43,7 +43,7 @@ export interface LevelDef {
   balls: Partial<Record<BallId, number>>;
   powerups: Partial<Record<PowerUpId, number>>;
   wind?: { x: number; z: number };
-  /** Show the whole flight and the landing point (teaching levels). */
+  /** Show the whole flight and the seam-aware landing ring (teaching levels). */
   fullGuide?: boolean;
   /** Ball introduced on this level, shown on the intro card. */
   introduces?: BallId | PowerUpId;
@@ -56,7 +56,7 @@ export interface LevelDef {
 export const POWERUPS: Record<PowerUpId, { name: string; blurb: string }> = {
   drive: { name: 'Power Drive', blurb: 'Next shot launches faster and hits half again as hard.' },
   ricochet: { name: 'Ricochet Boost', blurb: 'Next shot keeps more speed on its first eight bounces.' },
-  precision: { name: 'Precision Mode', blurb: 'Three shots with the full flight path, the landing point and seam glints.' },
+  precision: { name: 'Precision Mode', blurb: 'Three shots with the full flight path and a landing ring that turns white on a seam.' },
   golfers: { name: 'Multi-Golfer', blurb: 'Three golfers tee off together, side by side, with your aim and power.' },
 };
 
@@ -146,7 +146,7 @@ export const CAMPAIGN: LevelDef[] = [
     objectives: [{ kind: 'windows', n: 4 }],
     balls: {},
     powerups: {},
-    tips: ['From here on the guide only shows the start of the flight. Watch where each ball lands.'],
+    tips: ['From here on the guide only shows the start of the flight. The yellow dot is still where the ball lands first.'],
   },
   {
     id: 'c4',
