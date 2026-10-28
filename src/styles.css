@@ -2450,32 +2450,35 @@ p {
 
 .g-controls {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 10px;
 }
 
-.g-pick {
+.g-controls .g-power {
   flex: 1;
   min-width: 0;
   max-width: 520px;
+}
+
+/* Balls and power-ups share one wrapping strip so every chip stays whole on a phone. */
+.g-pick {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
+  max-width: 640px;
 }
 
 .g-balls,
 .g-powerups {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  padding: 2px;
-  touch-action: pan-x;
 }
 
-.g-balls::-webkit-scrollbar,
-.g-powerups::-webkit-scrollbar {
-  display: none;
+.g-powerups {
+  padding-left: 8px;
+  border-left: 2px solid rgba(255, 248, 233, 0.35);
 }
 
 .g-ball,
@@ -2582,7 +2585,6 @@ p {
 }
 
 .golf-play.flying .g-pick,
-.golf-play.flying .g-power,
 .golf-play.flying .g-fire,
 .golf-play.flying .g-side {
   opacity: 0;
@@ -2938,6 +2940,42 @@ p {
   }
   .g-controls {
     justify-content: space-between;
+  }
+}
+
+/* Phones: chips drop to icon and count so a full kit fits in two rows. Tapping one names it in the note. */
+@media (max-width: 699px) {
+  .g-ball,
+  .g-pu {
+    position: relative;
+    justify-content: center;
+    width: 42px;
+    min-height: 42px;
+    padding: 0;
+  }
+  .g-ball-name,
+  .g-pu-name {
+    display: none;
+  }
+  .g-powerups {
+    padding-left: 0;
+    border-left: 0;
+  }
+  .g-ball .g-count,
+  .g-pu .g-count {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    min-width: 17px;
+    height: 17px;
+    padding: 0 4px;
+    font-size: 11px;
+    border: 2px solid var(--ink);
+  }
+  .g-fire {
+    width: 76px;
+    height: 76px;
+    font-size: 22px;
   }
 }
 
