@@ -13,15 +13,15 @@ mkdirSync(outDir, { recursive: true });
 // Maskable icons must survive a circular crop: no rounded corners, artwork
 // scaled into the central 80% safe zone.
 const maskable = svg
-  .replace(/<rect width="512" height="512" rx="112" fill="url\(#bg\)"\/>/, '<rect width="512" height="512" fill="#182231"/><rect width="512" height="512" fill="url(#bg)"/>')
-  .replace('<circle cx="352"', '<g transform="translate(256 256) scale(0.82) translate(-256 -256)"><circle cx="352"')
+  .replace(/<rect width="512" height="512" rx="112" fill="url\(#bg\)"\/>/, '<rect width="512" height="512" fill="#4f97d6"/><rect width="512" height="512" fill="url(#bg)"/>')
+  .replace('<g id="art">', '<g transform="translate(256 256) scale(0.82) translate(-256 -256)"><g id="art">')
   .replace('</svg>', '</g></svg>');
 
 // iOS squares the corners itself and shows black behind transparency, so the
 // touch icon is full-bleed with the artwork slightly inset.
 const apple = svg
   .replace(/<rect width="512" height="512" rx="112" fill="url\(#bg\)"\/>/, '<rect width="512" height="512" fill="url(#bg)"/>')
-  .replace('<circle cx="352"', '<g transform="translate(256 256) scale(0.92) translate(-256 -256)"><circle cx="352"')
+  .replace('<g id="art">', '<g transform="translate(256 256) scale(0.92) translate(-256 -256)"><g id="art">')
   .replace('</svg>', '</g></svg>');
 
 const targets = [
