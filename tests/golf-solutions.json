@@ -1,0 +1,122 @@
+{
+ "levels": {
+  "c1": [
+   {
+    "ball": "standard",
+    "yaw": -11.8598,
+    "pitch": 12.9743,
+    "power": 1
+   }
+  ],
+  "c2": [
+   {
+    "ball": "standard",
+    "yaw": -3.4336,
+    "pitch": 9.9413,
+    "power": 1
+   }
+  ],
+  "c3": [
+   {
+    "ball": "standard",
+    "yaw": -6.4205,
+    "pitch": 14.1244,
+    "power": 0.86
+   },
+   {
+    "ball": "standard",
+    "yaw": 10.204,
+    "pitch": 14.9851,
+    "power": 0.86
+   },
+   {
+    "ball": "standard",
+    "yaw": 6.8428,
+    "pitch": 13.7098,
+    "power": 0.72
+   }
+  ],
+  "c4": [
+   {
+    "ball": "standard",
+    "yaw": -6.4205,
+    "pitch": 14.1244,
+    "power": 0.86
+   }
+  ],
+  "c5": [
+   {
+    "ball": "power",
+    "yaw": -5.8143,
+    "pitch": 10.1597,
+    "power": 0.86
+   }
+  ],
+  "c6": [
+   {
+    "ball": "super",
+    "yaw": 0.853,
+    "pitch": 23.0025,
+    "power": 0.86
+   }
+  ],
+  "c7": [
+   {
+    "ball": "multi",
+    "yaw": -5.5587,
+    "pitch": 7.4509,
+    "power": 0.86
+   }
+  ],
+  "c8": [
+   {
+    "ball": "heavy",
+    "yaw": 13.3811,
+    "pitch": 14.7366,
+    "power": 1
+   }
+  ],
+  "p1": [
+   {
+    "ball": "standard",
+    "yaw": -9.3694,
+    "pitch": 21.5533,
+    "power": 0.72
+   }
+  ],
+  "p2": [
+   {
+    "ball": "power",
+    "yaw": -2.5608,
+    "pitch": 18.2122,
+    "power": 0.86
+   }
+  ],
+  "p3": [
+   {
+    "ball": "power",
+    "yaw": -2.5608,
+    "pitch": 18.2122,
+    "power": 0.86
+   }
+  ],
+  "c9": [
+   {
+    "ball": "power",
+    "yaw": 3.883,
+    "pitch": 19.5341,
+    "power": 1,
+    "powerups": [
+     "golfers"
+    ]
+   },
+   {
+    "ball": "power",
+    "yaw": -5.808,
+    "pitch": 9.7289,
+    "power": 0.86
+   }
+  ]
+ },
+ "scoreAttack": []
+}

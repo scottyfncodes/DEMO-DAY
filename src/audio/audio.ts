@@ -44,7 +44,12 @@ export type Cue =
   | 'creak'
   | 'bite'
   | 'push'
-  | 'engine';
+  | 'engine'
+  | 'thwack'
+  | 'ping'
+  | 'rustle'
+  | 'seam'
+  | 'thump';
 
 /** Flavour for cues that vary: a charge type or a material. */
 export type Variant = 'small' | 'heavy' | 'directional' | 'shaped' | 'wood' | 'brick' | 'concrete' | 'steel';
@@ -98,7 +103,7 @@ export class AudioEngine {
     // Rate-limit noisy cues so a big collapse does not clip.
     const last = this.lastCue.get(cue) ?? -1;
     const minGap =
-      cue === 'impact' || cue === 'crumble' ? 0.06 : cue === 'push' ? 0.3 : cue === 'engine' ? 0.18 : cue === 'crack' || cue === 'glass' ? 0.05 : cue === 'failMajor' || cue === 'heavyLanding' ? 0.18 : cue === 'creak' ? 0.6 : 0.02;
+      cue === 'impact' || cue === 'crumble' ? 0.06 : cue === 'push' ? 0.3 : cue === 'engine' ? 0.18 : cue === 'crack' || cue === 'glass' ? 0.05 : cue === 'ping' || cue === 'thump' ? 0.035 : cue === 'rustle' ? 0.25 : cue === 'failMajor' || cue === 'heavyLanding' ? 0.18 : cue === 'creak' ? 0.6 : 0.02;
     if (now - last < minGap) return;
     this.lastCue.set(cue, now);
     switch (cue) {
@@ -261,6 +266,33 @@ export class AudioEngine {
       case 'engine':
         // A diesel pulling under load.
         this.thud(48 + strength * 14, 0.22, 0.06 + strength * 0.08);
+        break;
+      case 'thwack':
+        // Club face on ball: a hard click over a short, hollow knock.
+        this.noise(0.03, 0.55 + strength * 0.3, 5200, 'highpass');
+        this.blip(1900, 0.05, 0.18 + strength * 0.1, 0, 'triangle');
+        this.thud(170, 0.12, 0.35 + strength * 0.25);
+        this.sweepNoise(0.45 + strength * 0.3, 0.06 + strength * 0.1, 900, 2600 + strength * 1500);
+        break;
+      case 'ping':
+        // Superball off a hard surface: a bright rising ping.
+        this.blip(1300 + strength * 900, 0.09, 0.07 + strength * 0.07, 0, 'sine');
+        this.blip(2600 + strength * 700, 0.05, 0.03 + strength * 0.03, 0.01, 'triangle');
+        break;
+      case 'rustle':
+        this.noise(0.45, 0.12 + strength * 0.12, 3000, 'bandpass');
+        this.noise(0.3, 0.06, 6000, 'highpass', 0.08);
+        break;
+      case 'seam':
+        // Mortar joint giving way: two sharp cracks a beat apart, then a chime.
+        this.crack('brick', 0.9);
+        this.noise(0.03, 0.5, 4200, 'highpass', 0.05);
+        this.blip(1568, 0.16, 0.12, 0.08, 'triangle');
+        this.blip(2093, 0.22, 0.1, 0.13, 'triangle');
+        break;
+      case 'thump':
+        this.thud(110 + strength * 40, 0.12, 0.12 + strength * 0.2);
+        this.noise(0.05, 0.05 + strength * 0.06, 700, 'lowpass');
         break;
       case 'newBest':
         this.chord([523, 659, 784], 0.4, 0.22);

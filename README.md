@@ -1,8 +1,6 @@
 # DEMO DAY
 
-A mobile-first demolition strategy game for the browser. The heroes saved the city; you are the crew that cleans up after them. Every call-out is a building wrecked by a superhero fight, a villain or a kaiju: bring it down, clear the lot, haul the monster and mech remains to the salvage pad, get paid, and upgrade your fleet for the next, bigger disaster.
-
-Buildings start battle-damaged (holes punched by a landing hero, a mech arm through a roof, a frozen street, a tentacle still round the silo, fires), with debris and relics already on the lot. Relics can't be broken: lift or push them onto the pad for hero salvage, or lose them in the pit. Big hits get comic-book impacts, shockwaves and fireballs, large collapses drop into slow motion, and long chain reactions earn mayhem banners (all of it toned down with Reduce motion).
+Golf-powered house demolition for the phone browser. You stand on a tee in front of a brick house with a bag of golf balls. Every brick, pane, floor, beam and roof tile is its own piece: knock bricks out one at a time, split two at once with a seam shot, send a ball in through a window to rattle round the rooms, and undercut a wall until the roof above it comes down.
 
 **Play it:** https://scottyfncodes.github.io/DEMO-DAY/
 
@@ -10,62 +8,53 @@ Add it to your iPhone Home Screen (Share → Add to Home Screen) for full-screen
 
 ## How it plays
 
-Every machine brings a limited number of **moves** to a job. One token is one move.
+- **Aim** by dragging anywhere on the lawn: sideways turns the shot, up and down sets the loft. **Zoom** halves the aim speed for fine work.
+- **Power** is the bar at the bottom. **FIRE** takes the shot. The guide shows the start of the flight (the whole flight and the landing ring with Precision Mode and on the teaching levels).
+- **Bricks**: a square, hard hit breaks the brick it lands on. Land on the mortar joint between two bricks (within 4 cm, within 38° of square, hard enough for both) and both go: a **seam shot**. Old brick breaks easier; reinforced courses need the Power or Heavy ball.
+- **Windows** break at any speed and the ball carries on inside. The front of the house turns see-through while a ball is in a room, so you can follow it off the furniture, through the doorways and out the back.
+- **Structure**: bricks rest on the course below in running bond and hang sideways from their neighbours for a couple of bricks, so a small hole arches over and a wide undercut drops the wall above it. Lintels carry the wall over openings, floors bear on the front and back walls, roof sections need half the wall top under them and a ridge beam carried by the gables, the porch roof sits on a beam on two columns, and the chimney stands on its own footing. Overloaded pieces creak, then give way. Falling pieces land on, and break, what is under them.
 
-1. **Pick a machine** from the bar at the bottom (its counter shows the moves left).
-2. **Tap a target.** The site shows a preview: where the ball lands, what a charge's shock reaches, where the excavator will stand, the arrow of a dozer run, where the loader will take its bucket. The panel says what it will do and what it costs.
-3. **Confirm.** The move is spent once (a second tap cannot spend it again), the machine does it, and the simulation plays out. The next move is ready when the dust settles; **Speed up** fast-forwards.
+| Ball | What it does |
+| --- | --- |
+| Standard | Predictable. Breaks brick and glass; the seam-shot ball |
+| Power | Faster and heavier, punches through brick and reinforced courses. Hooks right above 80% power, shorter guide |
+| Superball | Keeps its bounce off every surface. Weak on brick, made for windows, rooms and bank shots |
+| Multiball | Five balls in a fan, each with its own flight and hits |
+| Heavy | Three times the mass on a slow, dropping flight; shoves the parts around its hit. No good for seams or ricochets |
+| Charge | A golf ball packed like a demolition charge: goes off on the first hard contact |
 
-Previewing, selecting and cancelling are free. Invalid moves explain why and cost nothing.
+Power-ups: **Power Drive** (faster, harder), **Ricochet Boost** (keeps more bounce for eight contacts), **Precision Mode** (three shots with the full guide, landing ring and seam glint), **Multi-Golfer** (three golfers fire your shot together from three tees). Consecutive scoring shots build a **streak** multiplier; a miss resets it.
 
-| Machine | One move | Good at |
-| --- | --- | --- |
-| **Crane & wrecking ball** | One swing at the point you tap (or a drop from above, with the upgrade) | Heavy hits on the frame; starting collapses |
-| **Charges** | One charge strapped to a column, wall or slab (shaped charges cost two). Firing is free; a charge you take off before firing is refunded | Cutting supports anywhere, at any height; toppling tall things the way you choose |
-| **Excavator** | Drives into reach and takes three bites | Precision: stumps, hung-up sections, core walls, slabs too heavy to push |
-| **Bulldozer** | One run: gets behind the rubble you tap and pushes it toward the pit or the pad | Clearing the most rubble per move |
-| **Wheel loader** | One scoop: a bucket of rubble, or one block lifted, carried to the pad or the pit | Recovering salvage and prizes, cleaning up corners |
+Birds, a squirrel and the cat get out of the way as soon as you swing. They are never targets.
 
-The tools feed each other: charges and the ball bring it down, the excavator breaks what is too heavy, the dozer clears, the loader recovers what pays. Most jobs can be finished more than one way.
+## Modes
 
-## Contracts
-
-| Job | Building | The problem |
-| --- | --- | --- |
-| 01 | Corner Store | Captain Volt landed on it, twice. Training job |
-| 02 | Halsey Auto | TITAN-9's arm is still in the roof; every bit of mech pays |
-| 03 | No. 12 Maple Street | Frozen solid by Frostbyte; a floor safe to recover, No. 14 next door |
-| 04 | Holloway Silo | Gorrath's tentacle still wrapped round it; the farmhouse 10 m away |
-| 05 | Ironworks Stack | Gorrath's toothpick: 36 m of cracked brick beside a pump house that must not be touched |
-| 06 | Riverside Stores | A villain thrown through two floors; a ship's bell in the stair core |
-| 07 | Market Street Parkade | Gorrath sat on it; a scale and a claw to recover, slabs too heavy to push |
-| 08 | The Halden Exchange | The final battle: burning upper floors, a mech reactor core, and a kaiju egg in the vault |
-
-Each job has primary objectives (bring it down, clear the lot, and on some jobs keep debris off the neighbour) and bonus objectives. The payout sheet lists every line: the contract fee and each bonus are **paid once**; replays pay for salvage, prizes, recycled rubble and moves to spare, minus damage next door and machine repairs. Stars: finish, meet every bonus, come in at or under the move par.
-
-## Garage and upgrades
-
-Start with the crane and the dozer; buy the excavator, charges licence and loader. Every machine has a **Power**, an **Efficiency** and a **Capability** track (heavier ball, longer boom, drop strikes; stronger breaker, longer reach, shears; bigger blade, heavier push, ram plate; high-yield and shaped charges, the structural scanner; bigger bucket, heavy-lift arms, scrap sorter). Each upgrade changes a number the simulation reads (`src/wreck/kit.ts`), and several show on the machine itself.
+- **Campaign**: ten handcrafted levels, one new idea each (bricks, seams, windows, the interior, a load-bearing porch, ricochet chains, the garden, the chimney, the roof, and the whole house). Stars for finishing at or under par.
+- **Score Attack**: eight shots, bronze, silver and gold.
+- **Precision Challenges**: in one side and out the other, the trophy upstairs, the grandfather clock.
+- **Daily Challenge**: one layout per calendar day, built from the date, scored on this device.
+- **Sandbox**: every ball and power-up you have met, no budget.
+- **Crew Contracts**: the original machine-and-moves Demo Day (crane, charges, excavator, dozer, loader), kept whole under Levels with its own save.
 
 ## How it is built
 
-- **Simulation** (`src/wreck/`): a deterministic, fixed-step structural simulation. Buildings are column, slab and infill pieces joined by joints (`buildings.ts`, `structure.ts`); a load solver routes weight to the ground and sizes members for their intact loads (`solver.ts`); overloaded parts creep and fail, unsupported groups fall as rigid sections, break up on impact, and come to rest as a rubble heightmap and blocks (`sim.ts`). Machines, charges, the pit and the pad live in `tools.ts`. The same inputs at the same ticks always give the same collapse.
-- **Moves** (`src/game/moves.ts`): budgets, previews, a commit that cannot double-spend, and the settle phase. `crew.ts` is an automated crew that plays through the same API; the tests use it to prove every contract can be finished.
-- **Game** (`src/game/`, `src/data/`): contracts, fleet and upgrades as data; payout, progression and the save (versioned, validated, migrates the first-generation save).
-- **Rendering** (`src/render/`): a lit 3/4 diorama on Canvas 2D. The simulation is 2D; every piece, heap and machine is extruded in depth with an oblique projection, with directional light, cast shadows, damage and strain feedback, dust and debris (`src/wreck/fx.ts`).
-- **UI** (`src/ui/`): plain DOM screens (title, contracts, job sheet and crew, play, results, garage, records, settings), safe-area aware, touch first.
-- No runtime dependencies. Procedural Web Audio sound. PWA manifest and service worker.
+- **Simulation** (`src/golf/sim/`): deterministic and fixed-step (120 Hz). `house.ts` lays out the house brick by brick on a 0.3 m grid with openings, lintels, floors, partitions, stairs, roof decks and tiles, chimney, porch, furniture and garden, and links what rests on what. `world.ts` flies the balls (sub-stepped sphere-vs-box, so nothing tunnels), resolves damage and seam shots, solves support and load, and drops loose parts as tumbling debris that lands on rubble. `session.ts` is the shot budget, ammo, power-ups, scoring and objectives, read only from simulation events. `levels.ts` holds every level as data.
+- **Rendering** (`src/golf/render/`): three.js. Bricks and other box parts are instanced (one draw call per size and material), furniture and garden pieces are merged single meshes, effects are pooled. Nothing in the renderer writes to the simulation.
+- **UI** (`src/golf/ui/`): plain DOM over the canvas, touch first, safe-area aware.
+- **Save**: golf progress is stored under its own key (`demo-day:golf`); the Crew Contracts save (`demo-day:save`) is never read, changed or reset by the golf game.
+- Procedural Web Audio sound. PWA manifest and service worker.
 
 ## Development
 
 ```sh
 pnpm install
 pnpm dev          # local dev server
-pnpm test         # vitest
+pnpm test         # vitest: physics, seams, structure, scoring, saves, and every level replayed to its par
 pnpm typecheck    # tsc --noEmit
 pnpm build        # production build to dist/
 pnpm check        # all three
-pnpm preview && pnpm smoke   # headless iPhone run: training job by touch, results, a garage purchase, reload
+pnpm preview && pnpm smoke   # headless iPhone runs of the golf game and Crew Contracts
+pnpm tune         # slow local searches (level solutions, medal thresholds)
 ```
 
 Deployed to GitHub Pages by `.github/workflows/deploy.yml` on every push to `main`.

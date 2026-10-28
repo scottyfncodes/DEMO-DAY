@@ -4,7 +4,7 @@ import { h } from '../dom';
 import { ICON } from '../icons';
 
 /** Page header: back to the title, the page name and the bank balance. */
-export function screenHeader(app: App, title: string, money = false, back: () => void = () => app.go('title')): HTMLElement {
+export function screenHeader(app: App, title: string, money = false, back: () => void = () => app.go('classic')): HTMLElement {
   return h(
     'header',
     { class: 'page-head' },

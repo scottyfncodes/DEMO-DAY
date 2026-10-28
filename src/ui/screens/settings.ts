@@ -46,7 +46,7 @@ export function settingsScreen(app: App): ScreenInstance {
           app.store.reset();
           app.applySettings();
           app.toast('Progress reset.');
-          app.go('title');
+          app.go('classic');
         } }))));
       } })),
     ),
