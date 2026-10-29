@@ -116,7 +116,17 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   const ready = h('div', { class: 'g-ready', 'aria-hidden': 'true' }, readyFill, readyText);
   const fastBtn = h('button', { class: 'btn ghost sm g-fast hidden', onClick: () => setFast(!fast) }, h('span', { class: 'icon', html: ICON.ff }), h('span', { text: 'Speed up' }));
   const coach = h('div', { class: 'g-coach hidden', role: 'status' });
-  const bottom = h('div', { class: 'g-bottom' }, coach, ballNote, h('div', { class: 'g-pick' }, caption, h('div', { class: 'g-tray' }, ballRow, puRow)), fireBtn, fastBtn);
+  // The bag: one small button in the corner away from the golfer. It shows the ball in
+  // hand and opens the full picker above it, so the lawn stays clear while aiming.
+  const bagBtn = h('button', { class: 'g-bag', 'aria-expanded': 'false', 'aria-label': 'Choose ball and power-ups', onClick: () => setBag(!bagOpen) });
+  const pick = h('div', { class: 'g-pick' }, caption, h('div', { class: 'g-tray' }, ballRow, puRow));
+  const bottom = h('div', { class: 'g-bottom' }, coach, ballNote, pick, bagBtn, fireBtn, fastBtn);
+  let bagOpen = false;
+  const setBag = (open: boolean): void => {
+    bagOpen = open;
+    el.classList.toggle('bag-open', open);
+    bagBtn.setAttribute('aria-expanded', String(open));
+  };
 
   const shotCard = h('div', { class: 'g-shotcard', 'aria-live': 'polite' });
   const callouts = h('div', { class: 'g-callouts', 'aria-hidden': 'true' });
@@ -192,7 +202,16 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
       h('span', { text: ` · ${BALLS[ball].hint}` }),
       ...on.map((p) => h('span', { class: 'g-caption-pu', text: ` + ${POWERUPS[p].name}` })),
     );
-    caption.classList.toggle('hidden', ballRow.classList.contains('single') && puRow.classList.contains('hidden'));
+    const nothingToPick = ballRow.classList.contains('single') && puRow.classList.contains('hidden');
+    bagBtn.classList.toggle('hidden', nothingToPick);
+    if (nothingToPick) setBag(false);
+    const n = ammoText(ball);
+    bagBtn.replaceChildren(
+      h('span', { class: 'g-swatch', html: ballSwatch(ball) }),
+      h('span', { class: 'g-bag-name', text: BALLS[ball].name }),
+      ...(n ? [h('span', { class: 'g-count', text: n })] : []),
+      ...on.map((p) => h('span', { class: 'icon g-bag-pu', html: GICON[p] })),
+    );
   };
 
   let noteTimer = 0;
@@ -210,6 +229,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     app.play('select');
     note(`${BALLS[b].name}: ${BALLS[b].blurb}`);
     predDirty = true;
+    setBag(false);
     renderBalls();
   };
 
@@ -245,6 +265,8 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     ready.classList.remove('armed');
   };
   canvas.addEventListener('pointerdown', (ev) => {
+    // A press on the lawn while the bag is open just closes it.
+    if (bagOpen) return setBag(false);
     if (drag || session.phase !== 'aim' || introOpen || session.shotsLeft <= 0) return;
     canvas.setPointerCapture(ev.pointerId);
     drag = { id: ev.pointerId, x: ev.clientX, y: ev.clientY, yaw: aim.yaw, pitch: aim.pitch, moved: 0, ax: ev.clientX, ay: ev.clientY, still: ev.timeStamp, armed: false };
@@ -333,6 +355,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   const fire = (): void => {
     if (session.phase !== 'aim' || introOpen) return;
     if (session.shotsLeft <= 0) return;
+    setBag(false);
     const ok = session.fire({ ball, yaw: aim.yaw, pitch: aim.pitch, power: FULL });
     if (!ok) {
       app.play('error');

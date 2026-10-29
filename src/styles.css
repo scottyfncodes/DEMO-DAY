@@ -2178,6 +2178,7 @@ p {
     bottom: auto;
     height: 100vh;
     height: 100lvh;
+    height: var(--screen-h, 100lvh);
   }
 }
 
@@ -2399,28 +2400,69 @@ p {
   pointer-events: auto;
 }
 
-/* Caption over one slim tray: balls, then power-ups, along the bottom edge and out of the thumb's way. */
+/* The picker opens from the bag button as one panel; closed, only the bag shows. */
 .g-pick {
-  display: flex;
+  display: none;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
-  max-width: 640px;
+  gap: 8px;
+  align-self: flex-end;
+  max-width: 100%;
+  padding: 10px;
+  border-radius: var(--r);
+  background: rgba(19, 20, 22, 0.92);
+  border: 1px solid var(--line-2);
+}
+
+.golf-play.bag-open .g-pick {
+  display: flex;
 }
 
 .g-tray {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 10px;
+  gap: 8px 10px;
+}
+
+.g-bag {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 44px;
+  padding: 0 12px 0 9px;
+  border-radius: 22px;
+  background: rgba(19, 20, 22, 0.86);
+  border: 2px solid var(--line-2);
+  font-family: var(--head);
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fff8e9;
+}
+
+.golf-play.bag-open .g-bag {
+  border-color: var(--safety);
+}
+
+.g-bag .g-count {
+  position: static;
+  border: 0;
+}
+
+.g-bag-pu,
+.g-bag-pu svg {
+  width: 18px;
+  height: 18px;
+  color: var(--go);
 }
 
 .g-caption {
   max-width: 100%;
   margin: 0;
-  padding: 5px 10px;
-  border-radius: var(--r-sm);
-  background: rgba(19, 20, 22, 0.86);
+  padding: 0 2px;
   font-size: 14px;
   line-height: 1.3;
   color: #fff8e9;
@@ -2444,11 +2486,6 @@ p {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-}
-
-.g-powerups {
-  padding-left: 10px;
-  border-left: 2px solid rgba(255, 248, 233, 0.25);
 }
 
 
@@ -2588,7 +2625,9 @@ p {
 }
 
 .golf-play.flying .g-pick,
+.golf-play.flying .g-bag,
 .golf-play.flying .g-side,
+.golf-play.addressing .g-bag,
 .golf-play.addressing .g-pick,
 .golf-play.addressing .g-side,
 .golf-play.addressing .g-note,
@@ -2597,7 +2636,7 @@ p {
   pointer-events: none;
 }
 
-.g-pick,
+.g-bag,
 .g-side {
   transition: opacity 0.2s ease;
 }
