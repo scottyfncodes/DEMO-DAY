@@ -30,17 +30,6 @@ async function waitAim(page, ms = 150000) {
   throw new Error('shot never settled');
 }
 
-// Holds SWING and lets go as the meter reaches the planned power (the timed swing).
-async function swing(page) {
-  const target = await page.evaluate(() => window.__golf.aim.power);
-  const box = await page.locator('.g-fire').boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.waitForTimeout(Math.round(target * 1100));
-  await page.mouse.up();
-  return page.locator('.g-power-val').innerText();
-}
-
 async function main() {
   const executablePath = existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : undefined;
   const browser = await chromium.launch({ ...(executablePath ? { executablePath } : {}), args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
@@ -65,30 +54,47 @@ async function main() {
   await page.waitForTimeout(600);
   await snap(page, 'aim-coach');
 
-  // Drag to aim with a finger: a touch drag on the lawn.
+  // The thumb swing: press on the lawn, slide to aim, let go to hit it at full power.
   const vp = page.viewportSize();
   const cdp = await context.newCDPSession(page);
   const touch = async (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+  const cx = vp.width / 2;
+  const cy = vp.height * 0.45;
+  // Press and hold without sliding, then let go: swings at the current aim.
+  const thumbSwing = async () => {
+    await touch('touchStart', cx, cy);
+    await page.waitForTimeout(400);
+    await touch('touchEnd');
+  };
+  const used = () => page.evaluate(() => window.__golf.session.shotsUsed);
+
+  // Sliding moves the aim while the thumb is down; letting go on the cancel strip puts it back.
   const y0 = await page.evaluate(() => window.__golf.aim.yaw);
-  await touch('touchStart', vp.width / 2, vp.height * 0.55);
-  for (let i = 1; i <= 8; i++) await touch('touchMove', vp.width / 2 + i * 6, vp.height * 0.55 - i * 3);
-  await touch('touchEnd');
+  await touch('touchStart', cx, cy);
+  for (let i = 1; i <= 8; i++) await touch('touchMove', cx + i * 6, cy - i * 3);
   const y1 = await page.evaluate(() => window.__golf.aim.yaw);
   check(y1 > y0 + 1, `touch drag did not change the aim (${y0} -> ${y1})`);
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(300);
   await snap(page, 'aim-dragged');
+  for (let i = 1; i <= 10; i++) await touch('touchMove', cx + 48, cy - 24 + i * ((vp.height - 20 - cy) / 10));
+  await page.waitForTimeout(200);
+  await snap(page, 'cancel-armed');
+  await touch('touchEnd');
+  await page.waitForTimeout(300);
+  check((await used()) === 0, 'letting go on the cancel strip fired a shot');
+  check(Math.abs((await page.evaluate(() => window.__golf.aim.yaw)) - y0) < 0.01, 'cancel did not restore the aim');
 
-  // A quick tap on SWING is called off and costs no shot.
-  await page.evaluate(() => window.__golf.aimAt(-0.75, 1.95, 0, 0.9));
+  // A quick brush of the screen is not a swing.
+  await page.evaluate(() => window.__golf.aimAt(-0.75, 1.95, 0));
   await page.waitForTimeout(300);
   await snap(page, 'aim-guide');
-  await page.locator('.g-fire').tap();
+  // Sent back to back so a slow headless frame can't stretch the tap into a hold.
+  await Promise.all([touch('touchStart', cx, cy), touch('touchEnd')]);
   await page.waitForTimeout(300);
-  check((await page.evaluate(() => window.__golf.session.shotsUsed)) === 0, 'a quick tap fired a shot');
+  check((await used()) === 0, 'a quick tap fired a shot');
 
-  // Shot 1: a brick, by the hook (precise), with a held swing let go at the marker.
-  const strike1 = await swing(page);
-  console.log(`  strike: ${strike1}`);
+  // Shot 1: a brick, aimed by the hook (precise), then a real press and release.
+  await thumbSwing();
   await page.waitForTimeout(250);
   await snap(page, 'flight');
   await waitAim(page);
@@ -99,8 +105,8 @@ async function main() {
   check(s.bricks >= 1, 'no brick broke on a direct hit');
 
   // Shot 2: through the living room window.
-  await page.evaluate(() => window.__golf.aimAt(-3.15, 1.95, 0, 0.9));
-  console.log(`  strike: ${await swing(page)}`);
+  await page.evaluate(() => window.__golf.aimAt(-3.15, 1.95, 0));
+  await thumbSwing();
   await page.waitForTimeout(700);
   await snap(page, 'inside');
   await waitAim(page);

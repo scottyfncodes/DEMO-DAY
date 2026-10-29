@@ -20,7 +20,7 @@ it('score attack bot', () => {
       for (const ball of ['standard', ...Object.keys(L.balls)] as BallId[]) {
         if (!base.canUse(ball)) continue;
         for (const pu of [[], ...(['drive', 'ricochet', 'golfers'] as PowerUpId[]).filter((q) => (base.powerups[q] ?? 0) > 0).map((q) => [q])]) {
-          const sh = solveAim(base.world, ball, { x: p.x, y: p.y, z: p.z + p.hz }, 0.9);
+          const sh = solveAim(base.world, ball, { x: p.x, y: p.y, z: p.z + p.hz }, 1);
           if (!sh) continue;
           const c: S = { ...sh, powerups: pu.length ? pu : undefined };
           const s = playScript(L, [...plan, c]);

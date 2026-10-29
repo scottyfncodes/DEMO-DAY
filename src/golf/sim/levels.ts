@@ -57,7 +57,7 @@ export const POWERUPS: Record<PowerUpId, { name: string; blurb: string; hint: st
   drive: { name: 'Power Drive', blurb: 'Next shot launches faster and hits half again as hard.', hint: 'next shot hits harder' },
   ricochet: { name: 'Ricochet Boost', blurb: 'Next shot keeps more speed on its first eight bounces.', hint: 'next shot keeps its bounce' },
   precision: { name: 'Precision Mode', blurb: 'Three shots with the full flight path and a landing ring that turns white on a seam.', hint: 'full flight path shown' },
-  golfers: { name: 'Multi-Golfer', blurb: 'Three golfers tee off together, side by side, with your aim and power.', hint: 'three tees at once' },
+  golfers: { name: 'Multi-Golfer', blurb: 'Three golfers tee off together, side by side, with your aim.', hint: 'three tees at once' },
 };
 
 const yardBasic: YardSpec = {
@@ -106,7 +106,7 @@ export const CAMPAIGN: LevelDef[] = [
     mode: 'campaign',
     number: '01',
     title: 'First Swing',
-    blurb: 'Drag to aim, set the power, swing. Knock three bricks out of the front wall.',
+    blurb: 'Press, slide to aim, let go to swing. Knock three bricks out of the front wall.',
     house: house({ storeys: 1, chimney: false, palette: PALETTES.honey as HouseSpec['palette'], zones: [oldPatch('front', -4.5, 4.5, 0.6, 3.3)] }),
     yard: yardBasic,
     shots: 6,
@@ -115,7 +115,7 @@ export const CAMPAIGN: LevelDef[] = [
     balls: {},
     powerups: {},
     fullGuide: true,
-    tips: ['Drag anywhere on the lawn to aim. Up and down sets the loft.', 'Slide the power bar to set your marker. The yellow dot shows where that shot lands.', 'Hold SWING and let go as the meter reaches your marker. On the marker is a pure strike.', 'This wall is old brick: anything solid knocks one out.'],
+    tips: ['Press your thumb anywhere on the lawn and slide. Side to side turns, up and down sets the loft. The yellow dot shows where the ball lands.', 'Let go to swing. Every shot is full power, so aim is everything. Let go on the strip at the bottom to call it off.', 'This wall is old brick: anything solid knocks one out.'],
   },
   {
     id: 'c2',
@@ -131,7 +131,7 @@ export const CAMPAIGN: LevelDef[] = [
     balls: {},
     powerups: { precision: 1 },
     fullGuide: true,
-    tips: ['The landing ring turns white when it sits on a joint between two bricks.', 'Seams need a square hit at strong power. Glancing shots only crack one.'],
+    tips: ['The landing ring turns white when it sits on a joint between two bricks.', 'Seams need a square hit. Glancing shots only crack one.'],
   },
   {
     id: 'c3',
@@ -177,7 +177,7 @@ export const CAMPAIGN: LevelDef[] = [
     balls: { power: 2 },
     powerups: {},
     introduces: 'power',
-    tips: ['New: the Power ball. Heavier, faster, and it punches through brick. Full power hooks right.'],
+    tips: ['New: the Power ball. Heavier, faster, and it punches through brick. It hooks right, so aim a touch left.'],
   },
   {
     id: 'c6',

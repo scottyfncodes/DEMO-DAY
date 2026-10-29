@@ -20,52 +20,58 @@
    {
     "ball": "standard",
     "yaw": -6.4205,
-    "pitch": 14.1244,
-    "power": 0.86
+    "pitch": 12.544,
+    "power": 1
+   },
+   {
+    "ball": "standard",
+    "yaw": 5.3715,
+    "pitch": 16.363,
+    "power": 1
    },
    {
     "ball": "standard",
     "yaw": 10.204,
-    "pitch": 14.9851,
-    "power": 0.86
-   },
-   {
-    "ball": "standard",
-    "yaw": 6.8428,
-    "pitch": 13.7098,
-    "power": 0.72
+    "pitch": 9.9895,
+    "power": 1
    }
   ],
   "c4": [
    {
     "ball": "standard",
     "yaw": -6.4205,
-    "pitch": 14.1244,
-    "power": 0.86
+    "pitch": 12.544,
+    "power": 1
    }
   ],
   "c5": [
    {
-    "ball": "power",
-    "yaw": -5.8143,
-    "pitch": 10.1597,
-    "power": 0.86
+    "ball": "standard",
+    "yaw": 5.1428,
+    "pitch": 11.2439,
+    "power": 1
    }
   ],
   "c6": [
    {
     "ball": "super",
-    "yaw": 0.853,
-    "pitch": 23.0025,
-    "power": 0.86
+    "yaw": 8.5308,
+    "pitch": 20.3082,
+    "power": 1
    }
   ],
   "c7": [
    {
     "ball": "multi",
     "yaw": -5.5587,
-    "pitch": 7.4509,
-    "power": 0.86
+    "pitch": 6.1494,
+    "power": 1
+   },
+   {
+    "ball": "multi",
+    "yaw": 1.7184,
+    "pitch": 13.4655,
+    "power": 1
    }
   ],
   "c8": [
@@ -79,67 +85,52 @@
   "p1": [
    {
     "ball": "standard",
-    "yaw": -9.3694,
-    "pitch": 21.5533,
-    "power": 0.72
+    "yaw": 6.8428,
+    "pitch": 12.9654,
+    "power": 1
    }
   ],
   "p2": [
    {
     "ball": "power",
-    "yaw": -2.5608,
-    "pitch": 18.2122,
-    "power": 0.86
+    "yaw": -6.8612,
+    "pitch": 17.2461,
+    "power": 1
    }
   ],
   "p3": [
    {
     "ball": "power",
-    "yaw": -2.5608,
-    "pitch": 18.2122,
-    "power": 0.86
+    "yaw": -6.1178,
+    "pitch": 18.0112,
+    "power": 1
    }
   ],
   "c9": [
    {
     "ball": "power",
-    "yaw": 3.883,
-    "pitch": 19.5341,
+    "yaw": -7.033,
+    "pitch": 25.0466,
     "power": 1,
     "powerups": [
      "golfers"
     ]
-   },
-   {
-    "ball": "power",
-    "yaw": -5.808,
-    "pitch": 9.7289,
-    "power": 0.86
    }
   ],
   "c10": [
    {
     "ball": "blast",
-    "yaw": -0.4145,
-    "pitch": 20.0227,
-    "power": 0.86,
+    "yaw": -2.0391,
+    "pitch": 14.801,
+    "power": 1,
     "powerups": [
      "golfers"
     ]
    },
    {
     "ball": "blast",
-    "yaw": 9.0503,
-    "pitch": 12.6725,
-    "power": 1,
-    "powerups": [
-     "drive"
-    ]
-   },
-   {
-    "ball": "blast",
-    "yaw": -10.5466,
-    "pitch": 19.4312,
+    "yaw": 9.0456,
+    "pitch": 14.3847,
     "power": 1
    }
   ]
@@ -148,59 +139,59 @@
   {
    "ball": "blast",
    "yaw": 0.8537,
-   "pitch": 21.5473,
-   "power": 0.9,
+   "pitch": 20.2984,
+   "power": 1,
    "powerups": [
     "golfers"
    ]
   },
   {
-   "ball": "multi",
-   "yaw": -10.1713,
-   "pitch": 27.5682,
-   "power": 0.9,
+   "ball": "blast",
+   "yaw": -11.8598,
+   "pitch": 9.2834,
+   "power": 1,
    "powerups": [
     "drive"
    ]
   },
   {
-   "ball": "blast",
-   "yaw": 10.1838,
-   "pitch": 26.7942,
-   "power": 0.9
-  },
-  {
-   "ball": "standard",
-   "yaw": -11.0342,
-   "pitch": 20.338,
-   "power": 0.9,
+   "ball": "multi",
+   "yaw": 0,
+   "pitch": 27.9469,
+   "power": 1,
    "powerups": [
     "ricochet"
    ]
   },
   {
    "ball": "standard",
+   "yaw": -9.3797,
+   "pitch": 27.1924,
+   "power": 1
+  },
+  {
+   "ball": "heavy",
    "yaw": 14.0956,
-   "pitch": 11.837,
-   "power": 0.9
-  },
-  {
-   "ball": "super",
-   "yaw": 8.573,
-   "pitch": 19.5665,
-   "power": 0.9
-  },
-  {
-   "ball": "super",
-   "yaw": -7.6884,
-   "pitch": 18.1901,
-   "power": 0.9
+   "pitch": 15.941,
+   "power": 1
   },
   {
    "ball": "standard",
    "yaw": 5.1428,
-   "pitch": 14.4592,
-   "power": 0.9
+   "pitch": 9.9488,
+   "power": 1
+  },
+  {
+   "ball": "power",
+   "yaw": -18.013,
+   "pitch": 17.1069,
+   "power": 1
+  },
+  {
+   "ball": "super",
+   "yaw": 8.573,
+   "pitch": 18.3337,
+   "power": 1
   }
  ]
 }

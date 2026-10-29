@@ -8,8 +8,8 @@ Add it to your iPhone Home Screen (Share → Add to Home Screen) for full-screen
 
 ## How it plays
 
-- **Aim** by dragging anywhere on the lawn: sideways turns the shot, up and down sets the loft. **Zoom** halves the aim speed for fine work.
-- **Power** is the bar at the bottom: it sets your marker. **Hold SWING** to wind up and let go as the meter reaches the marker. Inside the green window is a pure strike at exactly that power; early or late hits softer or harder. The meter climbs to full and back down, so holding on never just maxes out. A quick tap is called off and costs no shot. Turn **Timed swing** off in the pause menu to tap FIRE instead. A yellow dot marks where the ball will land first; the guide shows the start of the flight (the whole flight, and a landing ring that turns white on a seam, with Precision Mode and on the teaching levels).
+- **Swing** with one thumb: press anywhere on the lawn, slide to aim (sideways turns the shot, up and down sets the loft), let go to hit it. Every shot is full power, so the aim is the whole game. Let go on the strip along the bottom edge to call a swing off; a quick brush of the screen does nothing. **Zoom** halves the aim speed for fine work. On a keyboard, the arrows aim and Space swings.
+- A yellow dot marks where the ball will land first; the guide shows the start of the flight (the whole flight, and a landing ring that turns white on a seam, with Precision Mode and on the teaching levels).
 - **Bricks**: a square, hard hit breaks the brick it lands on. Land on the mortar joint between two bricks (within 4 cm, within 38° of square, hard enough for both) and both go: a **seam shot**. Old brick breaks easier; reinforced courses need the Power or Heavy ball.
 - **Windows** break at any speed and the ball carries on inside. The front of the house turns see-through while a ball is in a room, so you can follow it off the furniture, through the doorways and out the back.
 - **Structure**: bricks rest on the course below in running bond and hang sideways from their neighbours for a couple of bricks, so a small hole arches over and a wide undercut drops the wall above it. Lintels carry the wall over openings, floors bear on the front and back walls, roof sections need half the wall top under them and a ridge beam carried by the gables, the porch roof sits on a beam on two columns, and the chimney stands on its own footing. Overloaded pieces creak, then give way. Falling pieces land on, and break, what is under them.
@@ -17,7 +17,7 @@ Add it to your iPhone Home Screen (Share → Add to Home Screen) for full-screen
 | Ball | What it does |
 | --- | --- |
 | Standard | Predictable. Breaks brick and glass; the seam-shot ball |
-| Power | Faster and heavier, punches through brick and reinforced courses. Hooks right above 80% power, shorter guide |
+| Power | Faster and heavier, punches through brick and reinforced courses. Hooks right at full power, shorter guide |
 | Superball | Keeps its bounce off every surface. Weak on brick, made for windows, rooms and bank shots |
 | Multiball | Five balls in a fan, each with its own flight and hits |
 | Heavy | Three times the mass on a slow, dropping flight; shoves the parts around its hit. No good for seams or ricochets |

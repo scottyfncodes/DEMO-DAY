@@ -2383,109 +2383,6 @@ p {
   height: 20px;
 }
 
-.g-power {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 2px;
-  font-family: var(--head);
-  text-transform: uppercase;
-}
-
-.g-power small {
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  font-weight: 800;
-  color: #fff8e9;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
-}
-
-.g-power-val {
-  min-width: 54px;
-  text-align: right;
-  font-size: 18px;
-  font-weight: 800;
-  color: #fff8e9;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
-  font-variant-numeric: tabular-nums;
-}
-
-.g-power-track {
-  position: relative;
-  flex: 1;
-  height: 36px;
-  border-radius: 18px;
-  background: rgba(19, 20, 22, 0.84);
-  border: 1px solid var(--line-2);
-  touch-action: none;
-  cursor: ew-resize;
-}
-
-.g-power-fill {
-  position: absolute;
-  top: 5px;
-  bottom: 5px;
-  left: 5px;
-  border-radius: 13px;
-  background: linear-gradient(90deg, var(--safety) 0%, var(--safety) 72%, var(--rust) 100%);
-  max-width: calc(100% - 10px);
-}
-
-.g-power-knob {
-  position: absolute;
-  top: -5px;
-  bottom: -5px;
-  width: 28px;
-  border-radius: 9px;
-  background: #fff8e9;
-  border: 3px solid var(--ink);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
-}
-
-/* Timed swing: the knob becomes a thin marker inside a green pure-strike window,
-   and the fill is the swing meter. It turns green inside the window. */
-.g-power-zone {
-  position: absolute;
-  top: 2px;
-  bottom: 2px;
-  border-radius: 6px;
-  border: 2px solid var(--go);
-  display: none;
-}
-
-.golf-play.swinging .g-power-zone {
-  display: block;
-}
-
-.golf-play.swinging .g-power-knob {
-  width: 6px;
-  margin-left: 11px;
-  border: 0;
-  border-radius: 3px;
-}
-
-.g-power-fill.pure {
-  background: var(--go);
-}
-
-.g-power-val.strike-pure {
-  color: var(--go);
-}
-
-.g-power-val.strike-off {
-  color: var(--safety-hi);
-}
-
-.golf-play.swinging .g-fire {
-  transform: translateY(2px);
-  box-shadow: inset 0 -2px 0 var(--safety-deep), 0 2px 8px rgba(0, 0, 0, 0.35);
-}
-
-.golf-play.swinging .g-fire span {
-  font-size: 0.68em;
-  white-space: nowrap;
-}
-
 .g-bottom {
   position: absolute;
   left: 0;
@@ -2502,25 +2399,20 @@ p {
   pointer-events: auto;
 }
 
-.g-controls {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.g-controls .g-power {
-  flex: 1;
-  min-width: 0;
-  max-width: 520px;
-}
-
-/* Caption, balls and power-ups stack; each row wraps so every chip stays whole on a phone. */
+/* Caption over one slim tray: balls, then power-ups, along the bottom edge and out of the thumb's way. */
 .g-pick {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
   max-width: 640px;
+}
+
+.g-tray {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
 }
 
 .g-caption {
@@ -2552,6 +2444,11 @@ p {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.g-powerups {
+  padding-left: 10px;
+  border-left: 2px solid rgba(255, 248, 233, 0.25);
 }
 
 
@@ -2624,30 +2521,45 @@ p {
   color: var(--go);
 }
 
-.g-fire {
-  flex: none;
-  touch-action: none;
-  -webkit-touch-callout: none;
-  width: 92px;
-  height: 92px;
-  border-radius: 50%;
-  background: var(--safety);
-  color: var(--safety-ink);
-  box-shadow: inset 0 -5px 0 var(--safety-deep), 0 4px 14px rgba(0, 0, 0, 0.35);
+.g-swing-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Shown only while the thumb is down: letting go over it calls the swing off. */
+.g-cancel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(var(--sb) + 64px);
+  padding-bottom: var(--sb);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(to top, rgba(19, 20, 22, 0.78), rgba(19, 20, 22, 0));
   font-family: var(--head);
   font-weight: 800;
-  font-size: 26px;
-  letter-spacing: 0.06em;
-  transition: transform 0.08s ease, opacity 0.2s ease;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 248, 233, 0.75);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
 }
 
-.g-fire:active:not(:disabled) {
-  transform: translateY(2px);
-  box-shadow: inset 0 -2px 0 var(--safety-deep), 0 2px 8px rgba(0, 0, 0, 0.35);
+.golf-play.addressing .g-cancel {
+  opacity: 1;
 }
 
-.g-fire:disabled {
-  opacity: 0.35;
+.g-cancel.armed {
+  background: linear-gradient(to top, rgba(223, 95, 62, 0.92), rgba(223, 95, 62, 0));
+  color: #fff8e9;
 }
 
 .g-fast {
@@ -2661,14 +2573,16 @@ p {
 }
 
 .golf-play.flying .g-pick,
-.golf-play.flying .g-fire,
-.golf-play.flying .g-side {
+.golf-play.flying .g-side,
+.golf-play.addressing .g-pick,
+.golf-play.addressing .g-side,
+.golf-play.addressing .g-note,
+.golf-play.addressing .g-coach {
   opacity: 0;
   pointer-events: none;
 }
 
 .g-pick,
-.g-power,
 .g-side {
   transition: opacity 0.2s ease;
 }
@@ -3016,9 +2930,6 @@ p {
   .g-top .g-shots {
     grid-column: 4;
   }
-  .g-controls {
-    justify-content: space-between;
-  }
 }
 
 /* Phones: chips drop to icon and count so a full kit fits in two rows. Tapping one names it in the note. */
@@ -3045,19 +2956,6 @@ p {
     padding: 0 4px;
     font-size: 11px;
     border: 2px solid var(--ink);
-  }
-  .g-fire {
-    width: 76px;
-    height: 76px;
-    font-size: 22px;
-  }
-}
-
-@media (max-height: 520px) {
-  .g-fire {
-    width: 76px;
-    height: 76px;
-    font-size: 22px;
   }
 }
 
