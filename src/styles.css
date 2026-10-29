@@ -2530,36 +2530,51 @@ p {
   white-space: nowrap;
 }
 
-/* Shown only while the thumb is down: letting go over it calls the swing off. */
-.g-cancel {
+/* Shown only while the thumb is down: fills as the golfer winds up, then says the swing is ready. */
+.g-ready {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: calc(var(--sb) + 64px);
-  padding-bottom: var(--sb);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(to top, rgba(19, 20, 22, 0.78), rgba(19, 20, 22, 0));
+  left: 50%;
+  bottom: calc(var(--sb) + 22px);
+  transform: translateX(-50%);
+  overflow: hidden;
+  padding: 9px 18px;
+  border-radius: 999px;
+  background: rgba(19, 20, 22, 0.86);
   font-family: var(--head);
   font-weight: 800;
-  font-size: 13px;
+  font-size: 14px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(255, 248, 233, 0.75);
+  white-space: nowrap;
+  color: #fff8e9;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s ease;
 }
 
-.golf-play.addressing .g-cancel {
+.g-ready span {
+  position: relative;
+}
+
+.g-ready-fill {
+  position: absolute;
+  inset: 0;
+  background: rgba(242, 183, 5, 0.35);
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+
+.golf-play.addressing .g-ready {
   opacity: 1;
 }
 
-.g-cancel.armed {
-  background: linear-gradient(to top, rgba(223, 95, 62, 0.92), rgba(223, 95, 62, 0));
-  color: #fff8e9;
+.g-ready.armed {
+  background: var(--safety);
+  color: var(--safety-ink);
+}
+
+.g-ready.armed .g-ready-fill {
+  display: none;
 }
 
 .g-fast {

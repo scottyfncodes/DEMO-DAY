@@ -115,7 +115,7 @@ export const CAMPAIGN: LevelDef[] = [
     balls: {},
     powerups: {},
     fullGuide: true,
-    tips: ['Press your thumb anywhere on the lawn and slide. Side to side turns, up and down sets the loft. The yellow dot shows where the ball lands.', 'Let go to swing. Every shot is full power, so aim is everything. Let go on the strip at the bottom to call it off.', 'This wall is old brick: anything solid knocks one out.'],
+    tips: ['Press your thumb anywhere on the lawn and slide. Side to side turns, up and down sets the loft. The yellow dot shows where the ball lands.', 'Hold your thumb still and the golfer winds up. When it says Let go to swing, lift to hit it at full power. Lift while sliding and the aim just stays put; slide a little to back out of a wound-up swing.', 'This wall is old brick: anything solid knocks one out.'],
   },
   {
     id: 'c2',

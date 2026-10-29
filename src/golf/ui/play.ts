@@ -24,11 +24,10 @@ const PITCH_MAX = 62;
 const POWERUP_ORDER: PowerUpId[] = ['drive', 'ricochet', 'precision', 'golfers'];
 /** Every shot is a full swing: aim decides where it goes, not how hard. */
 const FULL = 1;
-/** A press this short that barely moves is a stray touch, not a swing. */
-const TAP_MS = 180;
-const TAP_PX = 8;
-/** Seconds for the golfer to reach the top of the backswing while the thumb is down. */
-const WIND_UP = 0.35;
+/** Seconds the thumb has to rest before the golfer reaches the top and the swing is ready. */
+const WIND_UP = 0.6;
+/** Thumb jitter under this many pixels still counts as holding still. */
+const STILL_PX = 6;
 
 function levelFor(app: App, id: string): LevelDef {
   const base = getLevel(id);
@@ -112,7 +111,9 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   const caption = h('p', { class: 'g-caption', 'aria-live': 'polite' });
   // Screen readers and switch controls have no thumb to slide: this swings at the current aim.
   const fireBtn = h('button', { class: 'g-swing-sr', text: 'Swing', onClick: () => fire() });
-  const cancelZone = h('div', { class: 'g-cancel', 'aria-hidden': 'true' }, h('span', { text: 'Let go here to cancel' }));
+  const readyFill = h('i', { class: 'g-ready-fill' });
+  const readyText = h('span');
+  const ready = h('div', { class: 'g-ready', 'aria-hidden': 'true' }, readyFill, readyText);
   const fastBtn = h('button', { class: 'btn ghost sm g-fast hidden', onClick: () => setFast(!fast) }, h('span', { class: 'icon', html: ICON.ff }), h('span', { text: 'Speed up' }));
   const coach = h('div', { class: 'g-coach hidden', role: 'status' });
   const bottom = h('div', { class: 'g-bottom' }, coach, ballNote, h('div', { class: 'g-pick' }, caption, h('div', { class: 'g-tray' }, ballRow, puRow)), fireBtn, fastBtn);
@@ -120,7 +121,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   const shotCard = h('div', { class: 'g-shotcard', 'aria-live': 'polite' });
   const callouts = h('div', { class: 'g-callouts', 'aria-hidden': 'true' });
 
-  const el = h('main', { class: 'screen golf-play' }, canvas, callouts, top, windEl, side, shotCard, bottom, cancelZone);
+  const el = h('main', { class: 'screen golf-play' }, canvas, callouts, top, windEl, side, shotCard, bottom, ready);
 
   // ------------------------------------------------------------ controls
 
@@ -233,23 +234,20 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     app.play('tap');
   };
 
-  // The swing: press anywhere on the lot, slide to aim, let go to hit it at full power.
-  // Aiming is relative and slow, so it can be precise with a thumb. Letting go on the
-  // cancel strip at the bottom puts the aim back and keeps the shot.
-  let drag: { id: number; x: number; y: number; yaw: number; pitch: number; moved: number; start: number } | null = null;
-  const overCancel = (ev: PointerEvent): boolean => {
-    const r = cancelZone.getBoundingClientRect();
-    return ev.clientY >= r.top && ev.clientX >= r.left && ev.clientX <= r.right;
-  };
+  // The swing: press anywhere on the lot and slide to aim. Hold the thumb still and the
+  // golfer winds up; once at the top, letting go swings at full power. Letting go while
+  // still sliding, or before the wind-up finishes, just keeps the aim, so the thumb can
+  // lift and come back as often as it likes. Aiming is relative and slow for precision.
+  let drag: { id: number; x: number; y: number; yaw: number; pitch: number; moved: number; ax: number; ay: number; still: number; armed: boolean } | null = null;
   const endAddress = (): void => {
     drag = null;
     el.classList.remove('addressing');
-    cancelZone.classList.remove('armed');
+    ready.classList.remove('armed');
   };
   canvas.addEventListener('pointerdown', (ev) => {
     if (drag || session.phase !== 'aim' || introOpen || session.shotsLeft <= 0) return;
     canvas.setPointerCapture(ev.pointerId);
-    drag = { id: ev.pointerId, x: ev.clientX, y: ev.clientY, yaw: aim.yaw, pitch: aim.pitch, moved: 0, start: ev.timeStamp };
+    drag = { id: ev.pointerId, x: ev.clientX, y: ev.clientY, yaw: aim.yaw, pitch: aim.pitch, moved: 0, ax: ev.clientX, ay: ev.clientY, still: ev.timeStamp, armed: false };
     el.classList.add('addressing');
   });
   canvas.addEventListener('pointermove', (ev) => {
@@ -260,26 +258,20 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     drag.moved = Math.max(drag.moved, Math.hypot(dx, dy));
     aim.yaw = Math.max(-YAW_MAX, Math.min(YAW_MAX, drag.yaw + dx * sens));
     aim.pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, drag.pitch - dy * sens * 0.9));
-    cancelZone.classList.toggle('armed', overCancel(ev));
+    // Sliding again unwinds the golfer: the swing is only ready after resting.
+    if (Math.hypot(ev.clientX - drag.ax, ev.clientY - drag.ay) > STILL_PX) {
+      drag.ax = ev.clientX;
+      drag.ay = ev.clientY;
+      drag.still = ev.timeStamp;
+    }
     predDirty = true;
     if (drag.moved > 30) advanceCoach('drag');
   });
   canvas.addEventListener('pointerup', (ev) => {
     if (!drag || drag.id !== ev.pointerId) return;
-    const d = drag;
+    const wound = ev.timeStamp - drag.still >= WIND_UP * 1000;
     endAddress();
-    if (overCancel(ev)) {
-      aim.yaw = d.yaw;
-      aim.pitch = d.pitch;
-      predDirty = true;
-      app.play('tap');
-      return;
-    }
-    if (ev.timeStamp - d.start < TAP_MS && d.moved < TAP_PX) {
-      note('Press and hold, slide to aim, then let go to swing.');
-      return;
-    }
-    fire();
+    if (wound) fire();
   });
   canvas.addEventListener('pointercancel', (ev) => {
     if (drag && drag.id === ev.pointerId) endAddress();
@@ -711,7 +703,15 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     if (session.phase !== 'aim') predDirty = true;
     if (session.phase === 'done') finishLevel();
     // The golfer winds up while the thumb is down and swings through on release.
-    const windUp = drag ? Math.min(1, (now - drag.start) / 1000 / WIND_UP) : session.phase === 'aim' ? 0.15 : FULL;
+    const windUp = drag ? Math.min(1, Math.max(0, (now - drag.still) / 1000 / WIND_UP)) : session.phase === 'aim' ? 0.15 : FULL;
+    if (drag) {
+      const armed = windUp >= 1;
+      if (armed && !drag.armed) app.buzz(8);
+      drag.armed = armed;
+      readyFill.style.transform = `scaleX(${windUp})`;
+      ready.classList.toggle('armed', armed);
+      readyText.textContent = armed ? 'Let go to swing' : 'Hold still to swing';
+    }
     const view: ViewState = {
       phase: introOpen ? 'intro' : session.phase,
       ball,
