@@ -9,6 +9,7 @@ import { CAMPAIGN, POWERUPS, getLevel, objectiveText, type LevelDef, type Object
 import { MATERIALS } from '../sim/materials';
 import type { Part } from '../sim/parts';
 import { Session, type ShotReport } from '../sim/session';
+import { MIN_SWING, PURE_WINDOW, SWING_TIME, strike, swingCharge, type Strike } from '../sim/swing';
 import { DT, type SimEvent } from '../sim/world';
 import { GICON, ballSwatch } from './icons';
 
@@ -103,14 +104,16 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   const powerFill = h('div', { class: 'g-power-fill' });
   const powerKnob = h('div', { class: 'g-power-knob' });
   const powerVal = h('b', { class: 'g-power-val' });
-  const powerTrack = h('div', { class: 'g-power-track', role: 'slider', 'aria-label': 'Shot power', 'aria-valuemin': '0', 'aria-valuemax': '100', tabindex: '0' }, powerFill, powerKnob);
+  const powerZone = h('div', { class: 'g-power-zone' });
+  const powerTrack = h('div', { class: 'g-power-track', role: 'slider', 'aria-label': 'Shot power', 'aria-valuemin': '0', 'aria-valuemax': '100', tabindex: '0' }, powerFill, powerZone, powerKnob);
   const power = h('div', { class: 'g-power' }, h('small', { text: 'POWER' }), powerTrack, powerVal);
 
   const ballRow = h('div', { class: 'g-balls', role: 'radiogroup', 'aria-label': 'Ball' });
   const puRow = h('div', { class: 'g-powerups' });
   const ballNote = h('p', { class: 'g-note' });
   const caption = h('p', { class: 'g-caption', 'aria-live': 'polite' });
-  const fireBtn = h('button', { class: 'g-fire', 'aria-label': 'Fire' }, h('span', { text: 'FIRE' }));
+  const fireLabel = h('span');
+  const fireBtn = h('button', { class: 'g-fire' }, fireLabel);
   const fastBtn = h('button', { class: 'btn ghost sm g-fast hidden', onClick: () => setFast(!fast) }, h('span', { class: 'icon', html: ICON.ff }), h('span', { text: 'Speed up' }));
   const coach = h('div', { class: 'g-coach hidden', role: 'status' });
   const bottom = h('div', { class: 'g-bottom' }, coach, ballNote, h('div', { class: 'g-pick' }, caption, ballRow, puRow), h('div', { class: 'g-controls' }, power, fireBtn), fastBtn);
@@ -234,9 +237,13 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   const setPower = (v: number): void => {
     aim.power = Math.max(0, Math.min(1, Math.round(v * 100) / 100));
     const pct = Math.round(aim.power * 100);
-    powerFill.style.width = `${pct}%`;
+    powerFill.style.width = `calc((100% - 28px) * ${aim.power} + 9px)`;
+    powerFill.classList.remove('pure');
     powerKnob.style.left = `calc((100% - 28px) * ${aim.power})`;
+    powerZone.style.left = `calc((100% - 28px) * ${Math.max(0, aim.power - PURE_WINDOW)} + 14px)`;
+    powerZone.style.width = `calc((100% - 28px) * ${Math.min(1, aim.power + PURE_WINDOW) - Math.max(0, aim.power - PURE_WINDOW)})`;
     powerVal.textContent = `${pct}%`;
+    powerVal.classList.remove('strike-pure', 'strike-off');
     powerTrack.setAttribute('aria-valuenow', String(pct));
     predDirty = true;
   };
@@ -314,7 +321,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
         break;
       case ' ':
       case 'Enter':
-        fire();
+        if (!ev.repeat) startSwing(null);
         break;
       case 'z':
         toggleZoom();
@@ -338,6 +345,10 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     }
   };
   window.addEventListener('keydown', onKey);
+  const onKeyUp = (ev: KeyboardEvent): void => {
+    if ((ev.key === ' ' || ev.key === 'Enter') && swing && swing.pointer === null) endSwing();
+  };
+  window.addEventListener('keyup', onKeyUp);
 
   // Stop the page from scrolling or zooming under the game; normal pages are unaffected.
   const stopTouch = (ev: TouchEvent): void => {
@@ -348,20 +359,78 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
 
   // ---------------------------------------------------------------- fire
 
-  const fire = (): void => {
+  const fire = (pw = aim.power): void => {
     if (session.phase !== 'aim' || introOpen) return;
     if (session.shotsLeft <= 0) return;
-    const ok = session.fire({ ball, yaw: aim.yaw, pitch: aim.pitch, power: aim.power });
+    const ok = session.fire({ ball, yaw: aim.yaw, pitch: aim.pitch, power: pw });
     if (!ok) {
       app.play('error');
       return;
     }
-    app.play('thwack', aim.power);
+    app.play('thwack', pw);
     app.buzz(10);
     advanceCoach('fire');
     renderAll();
   };
-  fireBtn.addEventListener('click', fire);
+
+  // The timed swing: hold SWING to wind up, let go as the meter reaches the power
+  // marker. A pure strike hits at exactly the planned power; otherwise the shot
+  // takes the power you let go at. "Timed swing" off in the pause menu taps to fire.
+  let swing: { start: number; pointer: number | null } | null = null;
+  const timed = (): boolean => !store.data.tapToFire;
+  const labelFire = (): void => {
+    fireLabel.textContent = timed() ? 'SWING' : 'FIRE';
+    fireBtn.setAttribute('aria-label', timed() ? 'Swing: hold, then let go at your power' : 'Fire');
+  };
+  labelFire();
+  const showCharge = (c: number): void => {
+    powerFill.style.width = `calc((100% - 28px) * ${c} + 9px)`;
+    powerFill.classList.toggle('pure', Math.abs(c - aim.power) <= PURE_WINDOW);
+  };
+  const showStrike = (st: Strike): void => {
+    const off = Math.round(Math.abs(st.miss) * 100);
+    powerVal.textContent = st.quality === 'pure' ? 'PURE' : `${st.miss > 0 ? '+' : '-'}${off}%`;
+    powerVal.classList.add(st.quality === 'pure' ? 'strike-pure' : 'strike-off');
+  };
+  const startSwing = (pointer: number | null): void => {
+    if (swing || session.phase !== 'aim' || introOpen || session.shotsLeft <= 0) return;
+    if (!timed()) return fire();
+    swing = { start: performance.now(), pointer };
+    el.classList.add('swinging');
+    fireLabel.textContent = 'LET GO';
+  };
+  const endSwing = (cancel = false): void => {
+    if (!swing) return;
+    const held = (performance.now() - swing.start) / 1000;
+    swing = null;
+    el.classList.remove('swinging');
+    labelFire();
+    const c = swingCharge(held);
+    if (cancel || (held < SWING_TIME && c < MIN_SWING)) {
+      setPower(aim.power);
+      if (!cancel) note('Hold SWING to wind up, then let go as the meter reaches your power marker.');
+      return;
+    }
+    const st = strike(c, aim.power);
+    fire(st.power);
+    showStrike(st);
+    if (st.quality === 'pure') app.buzz(18);
+  };
+  fireBtn.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault();
+    fireBtn.setPointerCapture(ev.pointerId);
+    startSwing(ev.pointerId);
+  });
+  fireBtn.addEventListener('pointerup', (ev) => {
+    if (swing && swing.pointer === ev.pointerId) endSwing();
+  });
+  fireBtn.addEventListener('pointercancel', (ev) => {
+    if (swing && swing.pointer === ev.pointerId) endSwing(true);
+  });
+  // Screen readers and switch controls activate with a plain click: fire at the set power.
+  fireBtn.addEventListener('click', (ev) => {
+    if (ev.detail === 0) fire();
+  });
 
   const setFast = (on: boolean): void => {
     fast = on;
@@ -423,6 +492,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     const aiming = session.phase === 'aim';
     el.classList.toggle('flying', !aiming);
     fireBtn.disabled = !aiming || session.shotsLeft <= 0;
+    if (aiming) setPower(aim.power);
     fastBtn.classList.toggle('hidden', aiming);
     if (aiming) setFast(false);
   };
@@ -611,6 +681,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
 
   const openPause = (): void => {
     if (resultShown) return;
+    endSwing(true);
     app.play('tap');
     const wasFast = fast;
     paused = true;
@@ -631,6 +702,22 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
       });
       return h('div', { class: 'setting-row' }, h('b', { text: label }), btn);
     };
+    const swingToggle = (): HTMLElement => {
+      const btn = h('button', {
+        class: `toggle${timed() ? ' on' : ''}`,
+        role: 'switch',
+        'aria-checked': String(timed()),
+        'aria-label': 'Timed swing',
+        onClick: () => {
+          store.data.tapToFire = !store.data.tapToFire;
+          store.save();
+          labelFire();
+          btn.classList.toggle('on', timed());
+          btn.setAttribute('aria-checked', String(timed()));
+        },
+      });
+      return h('div', { class: 'setting-row' }, h('b', { text: 'Timed swing' }), btn);
+    };
     const body = h(
       'div',
       { class: 'sheet-body' },
@@ -638,6 +725,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
       h('p', { class: 'muted', text: `${level.number} · ${level.title}` }),
       toggle('Sound', 'sound'),
       toggle('Reduce motion', 'reducedMotion'),
+      swingToggle(),
       h(
         'div',
         { class: 'sheet-actions stack' },
@@ -655,6 +743,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   // ------------------------------------------------------------ restart
 
   const restart = (): void => {
+    endSwing(true);
     if (session.phase === 'flight' && !resultShown) {
       // Restarting mid-shot is allowed: it just throws the attempt away.
     }
@@ -719,12 +808,14 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     }
     if (session.phase !== 'aim') predDirty = true;
     if (session.phase === 'done') finishLevel();
+    const charge = swing ? swingCharge((now - swing.start) / 1000) : null;
+    if (charge !== null) showCharge(charge);
     const view: ViewState = {
       phase: introOpen ? 'intro' : session.phase,
       ball,
       yaw: aim.yaw,
       pitch: aim.pitch,
-      power: aim.power,
+      power: charge ?? aim.power,
       prediction: session.phase === 'aim' && !introOpen ? prediction : null,
       guideFull: session.guideFull,
       guideShare: BALLS[ball].guide,
@@ -770,6 +861,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     destroy: () => {
       cancelAnimationFrame(raf);
       window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKeyUp);
       window.clearTimeout(noteTimer);
       document.querySelectorAll('.sheet-wrap').forEach((s) => s.remove());
       renderer.dispose();
