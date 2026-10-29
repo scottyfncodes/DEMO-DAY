@@ -2171,6 +2171,16 @@ p {
   user-select: none;
 }
 
+/* From the iOS home screen the fixed layer can stop short of the bottom edge,
+   leaving a dark band; size it to the full screen there instead. */
+@media (display-mode: standalone) {
+  .golf-play {
+    bottom: auto;
+    height: 100vh;
+    height: 100lvh;
+  }
+}
+
 .golf-canvas {
   position: absolute;
   inset: 0;
@@ -2391,7 +2401,7 @@ p {
 }
 
 .g-power-val {
-  min-width: 44px;
+  min-width: 54px;
   text-align: right;
   font-size: 18px;
   font-weight: 800;
@@ -2635,6 +2645,11 @@ p {
   transform: none;
 }
 
+/* While a coaching tip shows, the note can't appear, so give its space back. */
+.g-coach:not(.hidden) + .g-note {
+  display: none;
+}
+
 .g-shotcard {
   position: absolute;
   top: calc(var(--st) + 128px);
@@ -2734,10 +2749,7 @@ p {
 }
 
 .g-coach {
-  position: absolute;
-  left: calc(var(--sl) + 12px);
-  right: calc(var(--sr) + 12px);
-  bottom: calc(var(--sb) + 172px);
+  align-self: stretch;
   max-width: 440px;
   padding: 10px 14px;
   border-radius: var(--r);

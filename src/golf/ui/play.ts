@@ -112,13 +112,13 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   const caption = h('p', { class: 'g-caption', 'aria-live': 'polite' });
   const fireBtn = h('button', { class: 'g-fire', 'aria-label': 'Fire' }, h('span', { text: 'FIRE' }));
   const fastBtn = h('button', { class: 'btn ghost sm g-fast hidden', onClick: () => setFast(!fast) }, h('span', { class: 'icon', html: ICON.ff }), h('span', { text: 'Speed up' }));
-  const bottom = h('div', { class: 'g-bottom' }, ballNote, h('div', { class: 'g-pick' }, caption, ballRow, puRow), h('div', { class: 'g-controls' }, power, fireBtn), fastBtn);
+  const coach = h('div', { class: 'g-coach hidden', role: 'status' });
+  const bottom = h('div', { class: 'g-bottom' }, coach, ballNote, h('div', { class: 'g-pick' }, caption, ballRow, puRow), h('div', { class: 'g-controls' }, power, fireBtn), fastBtn);
 
   const shotCard = h('div', { class: 'g-shotcard', 'aria-live': 'polite' });
   const callouts = h('div', { class: 'g-callouts', 'aria-hidden': 'true' });
-  const coach = h('div', { class: 'g-coach hidden', role: 'status' });
 
-  const el = h('main', { class: 'screen golf-play' }, canvas, callouts, top, windEl, side, shotCard, coach, bottom);
+  const el = h('main', { class: 'screen golf-play' }, canvas, callouts, top, windEl, side, shotCard, bottom);
 
   // ------------------------------------------------------------ controls
 
@@ -235,7 +235,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     aim.power = Math.max(0, Math.min(1, Math.round(v * 100) / 100));
     const pct = Math.round(aim.power * 100);
     powerFill.style.width = `${pct}%`;
-    powerKnob.style.left = `calc(${pct}% - 14px)`;
+    powerKnob.style.left = `calc((100% - 28px) * ${aim.power})`;
     powerVal.textContent = `${pct}%`;
     powerTrack.setAttribute('aria-valuenow', String(pct));
     predDirty = true;
@@ -244,7 +244,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
 
   const powerFromEvent = (ev: PointerEvent): void => {
     const r = powerTrack.getBoundingClientRect();
-    setPower((ev.clientX - r.left) / r.width);
+    setPower((ev.clientX - r.left - 14) / (r.width - 28));
     advanceCoach('power');
   };
   powerTrack.addEventListener('pointerdown', (ev) => {
