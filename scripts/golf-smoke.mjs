@@ -30,6 +30,17 @@ async function waitAim(page, ms = 150000) {
   throw new Error('shot never settled');
 }
 
+// Holds SWING and lets go as the meter reaches the planned power (the timed swing).
+async function swing(page) {
+  const target = await page.evaluate(() => window.__golf.aim.power);
+  const box = await page.locator('.g-fire').boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(Math.round(target * 1100));
+  await page.mouse.up();
+  return page.locator('.g-power-val').innerText();
+}
+
 async function main() {
   const executablePath = existsSync('/opt/pw-browsers/chromium') ? '/opt/pw-browsers/chromium' : undefined;
   const browser = await chromium.launch({ ...(executablePath ? { executablePath } : {}), args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
@@ -67,12 +78,18 @@ async function main() {
   await page.waitForTimeout(400);
   await snap(page, 'aim-dragged');
 
-  // Shot 1: a brick, by the hook (precise), fired by tapping FIRE.
+  // A quick tap on SWING is called off and costs no shot.
   await page.evaluate(() => window.__golf.aimAt(-0.75, 1.95, 0, 0.9));
   await page.waitForTimeout(300);
   await snap(page, 'aim-guide');
   await page.locator('.g-fire').tap();
-  await page.waitForTimeout(700);
+  await page.waitForTimeout(300);
+  check((await page.evaluate(() => window.__golf.session.shotsUsed)) === 0, 'a quick tap fired a shot');
+
+  // Shot 1: a brick, by the hook (precise), with a held swing let go at the marker.
+  const strike1 = await swing(page);
+  console.log(`  strike: ${strike1}`);
+  await page.waitForTimeout(250);
   await snap(page, 'flight');
   await waitAim(page);
   await page.waitForTimeout(500);
@@ -83,8 +100,8 @@ async function main() {
 
   // Shot 2: through the living room window.
   await page.evaluate(() => window.__golf.aimAt(-3.15, 1.95, 0, 0.9));
-  await page.locator('.g-fire').tap();
-  await page.waitForTimeout(1100);
+  console.log(`  strike: ${await swing(page)}`);
+  await page.waitForTimeout(700);
   await snap(page, 'inside');
   await waitAim(page);
   await page.waitForTimeout(800);

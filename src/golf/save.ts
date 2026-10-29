@@ -28,10 +28,12 @@ export interface GolfSave {
   daily: Record<string, LevelRecord>;
   /** Coach marks on the first level have been completed. */
   coached: boolean;
+  /** Timed swing turned off: SWING becomes a plain FIRE at the set power. */
+  tapToFire: boolean;
 }
 
 export function defaultGolfSave(): GolfSave {
-  return { version: GOLF_SAVE_VERSION, levels: {}, daily: {}, coached: false };
+  return { version: GOLF_SAVE_VERSION, levels: {}, daily: {}, coached: false, tapToFire: false };
 }
 
 export function emptyLevelRecord(): LevelRecord {
@@ -60,6 +62,7 @@ export function normalizeGolfSave(raw: unknown): GolfSave | null {
     }
   }
   out.coached = o.coached === true;
+  out.tapToFire = o.tapToFire === true;
   return out;
 }
 

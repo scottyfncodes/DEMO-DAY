@@ -106,7 +106,7 @@ export const CAMPAIGN: LevelDef[] = [
     mode: 'campaign',
     number: '01',
     title: 'First Swing',
-    blurb: 'Drag to aim, set the power, fire. Knock three bricks out of the front wall.',
+    blurb: 'Drag to aim, set the power, swing. Knock three bricks out of the front wall.',
     house: house({ storeys: 1, chimney: false, palette: PALETTES.honey as HouseSpec['palette'], zones: [oldPatch('front', -4.5, 4.5, 0.6, 3.3)] }),
     yard: yardBasic,
     shots: 6,
@@ -115,7 +115,7 @@ export const CAMPAIGN: LevelDef[] = [
     balls: {},
     powerups: {},
     fullGuide: true,
-    tips: ['Drag anywhere on the lawn to aim. Up and down sets the loft.', 'Slide the power bar, then tap FIRE.', 'This wall is old brick: anything solid knocks one out.'],
+    tips: ['Drag anywhere on the lawn to aim. Up and down sets the loft.', 'Slide the power bar to set your marker. The yellow dot shows where that shot lands.', 'Hold SWING and let go as the meter reaches your marker. On the marker is a pure strike.', 'This wall is old brick: anything solid knocks one out.'],
   },
   {
     id: 'c2',
