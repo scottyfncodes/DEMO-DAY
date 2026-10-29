@@ -10,6 +10,8 @@ export interface BallDef {
   name: string;
   /** One line on what it is for. */
   blurb: string;
+  /** A few words for the caption under the ball picker. */
+  hint: string;
   radius: number;
   /** Mass in ball units (a standard ball is 1). Damage scales with it. */
   mass: number;
@@ -49,6 +51,7 @@ export const BALLS: Record<BallId, BallDef> = {
     id: 'standard',
     name: 'Standard',
     blurb: 'Predictable flight. Breaks brick and glass, and the one to use for seam shots.',
+    hint: 'steady flight, best for seams',
     radius: 0.11,
     mass: 1,
     minSpeed: 9,
@@ -72,6 +75,7 @@ export const BALLS: Record<BallId, BallDef> = {
     id: 'power',
     name: 'Power',
     blurb: 'Punches through brick and cracks foundations. Hooks at full power, and the guide shows less.',
+    hint: 'punches through brick',
     radius: 0.12,
     mass: 1.3,
     minSpeed: 12,
@@ -95,6 +99,7 @@ export const BALLS: Record<BallId, BallDef> = {
     id: 'super',
     name: 'Superball',
     blurb: 'Barely loses speed on a bounce. Weak on brick, made for windows, hallways and bank shots.',
+    hint: 'keeps its bounce',
     radius: 0.11,
     mass: 0.8,
     minSpeed: 9,
@@ -118,6 +123,7 @@ export const BALLS: Record<BallId, BallDef> = {
     id: 'multi',
     name: 'Multiball',
     blurb: 'Five balls in a fan. Each one flies and hits on its own.',
+    hint: 'five balls in a fan',
     radius: 0.1,
     mass: 0.9,
     minSpeed: 9,
@@ -141,6 +147,7 @@ export const BALLS: Record<BallId, BallDef> = {
     id: 'heavy',
     name: 'Heavy',
     blurb: 'Three times the mass on a slow, dropping flight. Shoves supports out; no good for bank shots or seams.',
+    hint: 'triple weight, shoves supports',
     radius: 0.2,
     mass: 3,
     minSpeed: 8,
@@ -164,6 +171,7 @@ export const BALLS: Record<BallId, BallDef> = {
     id: 'blast',
     name: 'Charge',
     blurb: 'A golf ball packed like a demolition charge: it goes off on the first hard contact.',
+    hint: 'goes off on the first hard hit',
     radius: 0.12,
     mass: 1,
     minSpeed: 9,

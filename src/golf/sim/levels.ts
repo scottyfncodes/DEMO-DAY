@@ -53,11 +53,11 @@ export interface LevelDef {
   tips?: string[];
 }
 
-export const POWERUPS: Record<PowerUpId, { name: string; blurb: string }> = {
-  drive: { name: 'Power Drive', blurb: 'Next shot launches faster and hits half again as hard.' },
-  ricochet: { name: 'Ricochet Boost', blurb: 'Next shot keeps more speed on its first eight bounces.' },
-  precision: { name: 'Precision Mode', blurb: 'Three shots with the full flight path and a landing ring that turns white on a seam.' },
-  golfers: { name: 'Multi-Golfer', blurb: 'Three golfers tee off together, side by side, with your aim and power.' },
+export const POWERUPS: Record<PowerUpId, { name: string; blurb: string; hint: string }> = {
+  drive: { name: 'Power Drive', blurb: 'Next shot launches faster and hits half again as hard.', hint: 'next shot hits harder' },
+  ricochet: { name: 'Ricochet Boost', blurb: 'Next shot keeps more speed on its first eight bounces.', hint: 'next shot keeps its bounce' },
+  precision: { name: 'Precision Mode', blurb: 'Three shots with the full flight path and a landing ring that turns white on a seam.', hint: 'full flight path shown' },
+  golfers: { name: 'Multi-Golfer', blurb: 'Three golfers tee off together, side by side, with your aim and power.', hint: 'three tees at once' },
 };
 
 const yardBasic: YardSpec = {
