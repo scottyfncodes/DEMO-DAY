@@ -8,7 +8,7 @@ Add it to your iPhone Home Screen (Share → Add to Home Screen) for full-screen
 
 ## How it plays
 
-- **Swing** with one thumb: press anywhere on the lawn, slide to aim (sideways turns the shot, up and down sets the loft), let go to hit it. Every shot is full power, so the aim is the whole game. Let go on the strip along the bottom edge to call a swing off; a quick brush of the screen does nothing. **Zoom** halves the aim speed for fine work. On a keyboard, the arrows aim and Space swings.
+- **Swing** with one thumb: press anywhere on the lawn and slide to aim (sideways turns the shot, up and down sets the loft). Hold your thumb still and the golfer winds up; once at the top, let go to hit it. Lifting while you are still sliding, or before the wind-up finishes, keeps the aim without swinging, so you can readjust as often as you like. Every shot is full power, so the aim is the whole game. **Zoom** halves the aim speed for fine work. On a keyboard, the arrows aim and Space swings.
 - A yellow dot marks where the ball will land first; the guide shows the start of the flight (the whole flight, and a landing ring that turns white on a seam, with Precision Mode and on the teaching levels).
 - **Bricks**: a square, hard hit breaks the brick it lands on. Land on the mortar joint between two bricks (within 4 cm, within 38° of square, hard enough for both) and both go: a **seam shot**. Old brick breaks easier; reinforced courses need the Power or Heavy ball.
 - **Windows** break at any speed and the ball carries on inside. The front of the house turns see-through while a ball is in a room, so you can follow it off the furniture, through the doorways and out the back.

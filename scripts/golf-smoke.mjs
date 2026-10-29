@@ -54,35 +54,50 @@ async function main() {
   await page.waitForTimeout(600);
   await snap(page, 'aim-coach');
 
-  // The thumb swing: press on the lawn, slide to aim, let go to hit it at full power.
+  // The thumb swing: press on the lawn, slide to aim, hold still to wind up, let go to swing.
   const vp = page.viewportSize();
   const cdp = await context.newCDPSession(page);
   const touch = async (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
   const cx = vp.width / 2;
   const cy = vp.height * 0.45;
-  // Press and hold without sliding, then let go: swings at the current aim.
+  // Press, rest until the golfer is at the top, then let go: swings at the current aim.
   const thumbSwing = async () => {
     await touch('touchStart', cx, cy);
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(900);
     await touch('touchEnd');
   };
   const used = () => page.evaluate(() => window.__golf.session.shotsUsed);
+  const yaw = () => page.evaluate(() => window.__golf.aim.yaw);
 
-  // Sliding moves the aim while the thumb is down; letting go on the cancel strip puts it back.
-  const y0 = await page.evaluate(() => window.__golf.aim.yaw);
+  // Sliding moves the aim; lifting mid-slide keeps that aim and swings nothing.
+  const y0 = await yaw();
   await touch('touchStart', cx, cy);
-  for (let i = 1; i <= 8; i++) await touch('touchMove', cx + i * 6, cy - i * 3);
-  const y1 = await page.evaluate(() => window.__golf.aim.yaw);
-  check(y1 > y0 + 1, `touch drag did not change the aim (${y0} -> ${y1})`);
-  await page.waitForTimeout(300);
+  for (let i = 1; i <= 7; i++) await touch('touchMove', cx + i * 6, cy - i * 3);
+  await page.waitForTimeout(250);
   await snap(page, 'aim-dragged');
-  for (let i = 1; i <= 10; i++) await touch('touchMove', cx + 48, cy - 24 + i * ((vp.height - 20 - cy) / 10));
-  await page.waitForTimeout(200);
-  await snap(page, 'cancel-armed');
-  await touch('touchEnd');
+  // The last slide and the lift go back to back, so the thumb is still moving when it lifts.
+  await Promise.all([touch('touchMove', cx + 60, cy - 24), touch('touchEnd')]);
   await page.waitForTimeout(300);
-  check((await used()) === 0, 'letting go on the cancel strip fired a shot');
-  check(Math.abs((await page.evaluate(() => window.__golf.aim.yaw)) - y0) < 0.01, 'cancel did not restore the aim');
+  const y1 = await yaw();
+  check(y1 > y0 + 1, `touch drag did not change the aim (${y0} -> ${y1})`);
+  check((await used()) === 0, 'lifting mid-slide fired a shot');
+
+  // Put the thumb back down and keep adjusting from where it was.
+  await touch('touchStart', cx, cy);
+  for (let i = 1; i <= 5; i++) await touch('touchMove', cx + i * 6, cy);
+  await Promise.all([touch('touchMove', cx + 36, cy), touch('touchEnd')]);
+  await page.waitForTimeout(300);
+  check((await yaw()) > y1 + 1, 'a second press did not carry on from the kept aim');
+  check((await used()) === 0, 'readjusting fired a shot');
+
+  // Holding still winds up: the swing is ready, and sliding again unwinds it.
+  await touch('touchStart', cx, cy);
+  await page.waitForTimeout(900);
+  await snap(page, 'wound-up');
+  check(await page.locator('.g-ready.armed').count(), 'holding still did not ready the swing');
+  await Promise.all([touch('touchMove', cx - 40, cy), touch('touchEnd')]);
+  await page.waitForTimeout(300);
+  check((await used()) === 0, 'sliding off a wound-up swing still fired');
 
   // A quick brush of the screen is not a swing.
   await page.evaluate(() => window.__golf.aimAt(-0.75, 1.95, 0));
