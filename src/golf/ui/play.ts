@@ -109,9 +109,10 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   const ballRow = h('div', { class: 'g-balls', role: 'radiogroup', 'aria-label': 'Ball' });
   const puRow = h('div', { class: 'g-powerups' });
   const ballNote = h('p', { class: 'g-note' });
+  const caption = h('p', { class: 'g-caption', 'aria-live': 'polite' });
   const fireBtn = h('button', { class: 'g-fire', 'aria-label': 'Fire' }, h('span', { text: 'FIRE' }));
   const fastBtn = h('button', { class: 'btn ghost sm g-fast hidden', onClick: () => setFast(!fast) }, h('span', { class: 'icon', html: ICON.ff }), h('span', { text: 'Speed up' }));
-  const bottom = h('div', { class: 'g-bottom' }, ballNote, h('div', { class: 'g-pick' }, ballRow, puRow), h('div', { class: 'g-controls' }, power, fireBtn), fastBtn);
+  const bottom = h('div', { class: 'g-bottom' }, ballNote, h('div', { class: 'g-pick' }, caption, ballRow, puRow), h('div', { class: 'g-controls' }, power, fireBtn), fastBtn);
 
   const shotCard = h('div', { class: 'g-shotcard', 'aria-live': 'polite' });
   const callouts = h('div', { class: 'g-callouts', 'aria-hidden': 'true' });
@@ -150,6 +151,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
       ballRow.append(btn);
     }
     ballRow.classList.toggle('single', available.length === 1);
+    renderCaption();
   };
 
   const renderPowerups = (): void => {
@@ -176,6 +178,18 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
       );
     }
     puRow.classList.toggle('hidden', !puRow.childElementCount);
+    renderCaption();
+  };
+
+  // Names the chosen ball and anything armed, so icon-only chips on a phone still say what they do.
+  const renderCaption = (): void => {
+    const on = POWERUP_ORDER.filter((p) => session.armed.has(p) || (p === 'precision' && session.precisionLeft > 0));
+    caption.replaceChildren(
+      h('b', { text: BALLS[ball].name }),
+      h('span', { text: ` · ${BALLS[ball].hint}` }),
+      ...on.map((p) => h('span', { class: 'g-caption-pu', text: ` + ${POWERUPS[p].name}` })),
+    );
+    caption.classList.toggle('hidden', ballRow.classList.contains('single') && puRow.classList.contains('hidden'));
   };
 
   let noteTimer = 0;
