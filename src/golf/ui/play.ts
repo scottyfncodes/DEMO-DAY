@@ -9,12 +9,11 @@ import { CAMPAIGN, POWERUPS, getLevel, objectiveText, type LevelDef, type Object
 import { MATERIALS } from '../sim/materials';
 import type { Part } from '../sim/parts';
 import { Session, type ShotReport } from '../sim/session';
-import { MIN_SWING, PURE_WINDOW, SWING_TIME, strike, swingCharge, type Strike } from '../sim/swing';
 import { DT, type SimEvent } from '../sim/world';
 import { GICON, ballSwatch } from './icons';
 
 /**
- * The golf play screen: the 3D lot, touch aiming, power, ball and power-up
+ * The golf play screen: the 3D lot, the thumb swing, ball and power-up
  * selection, the HUD, shot cards and results. Everything that changes the
  * game goes through Session; this file only reads it and draws.
  */
@@ -23,6 +22,13 @@ const YAW_MAX = 38;
 const PITCH_MIN = -3;
 const PITCH_MAX = 62;
 const POWERUP_ORDER: PowerUpId[] = ['drive', 'ricochet', 'precision', 'golfers'];
+/** Every shot is a full swing: aim decides where it goes, not how hard. */
+const FULL = 1;
+/** A press this short that barely moves is a stray touch, not a swing. */
+const TAP_MS = 180;
+const TAP_PX = 8;
+/** Seconds for the golfer to reach the top of the backswing while the thumb is down. */
+const WIND_UP = 0.35;
 
 function levelFor(app: App, id: string): LevelDef {
   const base = getLevel(id);
@@ -55,10 +61,10 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   store.started(level);
 
   const lowPower = (navigator.hardwareConcurrency ?? 8) <= 4;
-  const canvas = h('canvas', { class: 'golf-canvas', 'aria-label': 'Golf course and house. Drag to aim.' });
+  const canvas = h('canvas', { class: 'golf-canvas', 'aria-label': 'Golf course and house. Press and slide to aim, let go to swing.' });
   const renderer = new GolfRenderer(canvas, session.world, { lowPower, reducedMotion: app.reducedMotion });
 
-  const aim = { yaw: 0, pitch: level.fullGuide ? 11 : 9, power: 0.82 };
+  const aim = { yaw: 0, pitch: level.fullGuide ? 11 : 9 };
   let ball: BallId = 'standard';
   let peek = false;
   let zoom = false;
@@ -100,28 +106,21 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   const restartBtn = h('button', { class: 'icon-btn', 'aria-label': 'Restart level', html: GICON.restart, onClick: () => restart() });
   const side = h('div', { class: 'g-side' }, zoomBtn, peekBtn, restartBtn);
 
-  // Power: a vertical bar on the right edge.
-  const powerFill = h('div', { class: 'g-power-fill' });
-  const powerKnob = h('div', { class: 'g-power-knob' });
-  const powerVal = h('b', { class: 'g-power-val' });
-  const powerZone = h('div', { class: 'g-power-zone' });
-  const powerTrack = h('div', { class: 'g-power-track', role: 'slider', 'aria-label': 'Shot power', 'aria-valuemin': '0', 'aria-valuemax': '100', tabindex: '0' }, powerFill, powerZone, powerKnob);
-  const power = h('div', { class: 'g-power' }, h('small', { text: 'POWER' }), powerTrack, powerVal);
-
   const ballRow = h('div', { class: 'g-balls', role: 'radiogroup', 'aria-label': 'Ball' });
   const puRow = h('div', { class: 'g-powerups' });
   const ballNote = h('p', { class: 'g-note' });
   const caption = h('p', { class: 'g-caption', 'aria-live': 'polite' });
-  const fireLabel = h('span');
-  const fireBtn = h('button', { class: 'g-fire' }, fireLabel);
+  // Screen readers and switch controls have no thumb to slide: this swings at the current aim.
+  const fireBtn = h('button', { class: 'g-swing-sr', text: 'Swing', onClick: () => fire() });
+  const cancelZone = h('div', { class: 'g-cancel', 'aria-hidden': 'true' }, h('span', { text: 'Let go here to cancel' }));
   const fastBtn = h('button', { class: 'btn ghost sm g-fast hidden', onClick: () => setFast(!fast) }, h('span', { class: 'icon', html: ICON.ff }), h('span', { text: 'Speed up' }));
   const coach = h('div', { class: 'g-coach hidden', role: 'status' });
-  const bottom = h('div', { class: 'g-bottom' }, coach, ballNote, h('div', { class: 'g-pick' }, caption, ballRow, puRow), h('div', { class: 'g-controls' }, power, fireBtn), fastBtn);
+  const bottom = h('div', { class: 'g-bottom' }, coach, ballNote, h('div', { class: 'g-pick' }, caption, h('div', { class: 'g-tray' }, ballRow, puRow)), fireBtn, fastBtn);
 
   const shotCard = h('div', { class: 'g-shotcard', 'aria-live': 'polite' });
   const callouts = h('div', { class: 'g-callouts', 'aria-hidden': 'true' });
 
-  const el = h('main', { class: 'screen golf-play' }, canvas, callouts, top, windEl, side, shotCard, bottom);
+  const el = h('main', { class: 'screen golf-play' }, canvas, callouts, top, windEl, side, shotCard, bottom, cancelZone);
 
   // ------------------------------------------------------------ controls
 
@@ -234,48 +233,24 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     app.play('tap');
   };
 
-  const setPower = (v: number): void => {
-    aim.power = Math.max(0, Math.min(1, Math.round(v * 100) / 100));
-    const pct = Math.round(aim.power * 100);
-    powerFill.style.width = `calc((100% - 28px) * ${aim.power} + 9px)`;
-    powerFill.classList.remove('pure');
-    powerKnob.style.left = `calc((100% - 28px) * ${aim.power})`;
-    powerZone.style.left = `calc((100% - 28px) * ${Math.max(0, aim.power - PURE_WINDOW)} + 14px)`;
-    powerZone.style.width = `calc((100% - 28px) * ${Math.min(1, aim.power + PURE_WINDOW) - Math.max(0, aim.power - PURE_WINDOW)})`;
-    powerVal.textContent = `${pct}%`;
-    powerVal.classList.remove('strike-pure', 'strike-off');
-    powerTrack.setAttribute('aria-valuenow', String(pct));
-    predDirty = true;
+  // The swing: press anywhere on the lot, slide to aim, let go to hit it at full power.
+  // Aiming is relative and slow, so it can be precise with a thumb. Letting go on the
+  // cancel strip at the bottom puts the aim back and keeps the shot.
+  let drag: { id: number; x: number; y: number; yaw: number; pitch: number; moved: number; start: number } | null = null;
+  const overCancel = (ev: PointerEvent): boolean => {
+    const r = cancelZone.getBoundingClientRect();
+    return ev.clientY >= r.top && ev.clientX >= r.left && ev.clientX <= r.right;
   };
-  setPower(aim.power);
-
-  const powerFromEvent = (ev: PointerEvent): void => {
-    const r = powerTrack.getBoundingClientRect();
-    setPower((ev.clientX - r.left - 14) / (r.width - 28));
-    advanceCoach('power');
+  const endAddress = (): void => {
+    drag = null;
+    el.classList.remove('addressing');
+    cancelZone.classList.remove('armed');
   };
-  powerTrack.addEventListener('pointerdown', (ev) => {
-    ev.preventDefault();
-    powerTrack.setPointerCapture(ev.pointerId);
-    powerFromEvent(ev);
-  });
-  powerTrack.addEventListener('pointermove', (ev) => {
-    if (powerTrack.hasPointerCapture(ev.pointerId)) powerFromEvent(ev);
-  });
-  powerTrack.addEventListener('keydown', (ev) => {
-    if (ev.key === 'ArrowUp' || ev.key === 'ArrowRight') setPower(aim.power + 0.01);
-    else if (ev.key === 'ArrowDown' || ev.key === 'ArrowLeft') setPower(aim.power - 0.01);
-    else return;
-    ev.preventDefault();
-    ev.stopPropagation();
-  });
-
-  // Aiming: drag anywhere on the lot. Relative and slow, so it can be precise with a thumb.
-  let drag: { id: number; x: number; y: number; yaw: number; pitch: number; moved: number } | null = null;
   canvas.addEventListener('pointerdown', (ev) => {
-    if (session.phase !== 'aim' || introOpen) return;
+    if (drag || session.phase !== 'aim' || introOpen || session.shotsLeft <= 0) return;
     canvas.setPointerCapture(ev.pointerId);
-    drag = { id: ev.pointerId, x: ev.clientX, y: ev.clientY, yaw: aim.yaw, pitch: aim.pitch, moved: 0 };
+    drag = { id: ev.pointerId, x: ev.clientX, y: ev.clientY, yaw: aim.yaw, pitch: aim.pitch, moved: 0, start: ev.timeStamp };
+    el.classList.add('addressing');
   });
   canvas.addEventListener('pointermove', (ev) => {
     if (!drag || drag.id !== ev.pointerId) return;
@@ -285,14 +260,30 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     drag.moved = Math.max(drag.moved, Math.hypot(dx, dy));
     aim.yaw = Math.max(-YAW_MAX, Math.min(YAW_MAX, drag.yaw + dx * sens));
     aim.pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, drag.pitch - dy * sens * 0.9));
+    cancelZone.classList.toggle('armed', overCancel(ev));
     predDirty = true;
     if (drag.moved > 30) advanceCoach('drag');
   });
-  const endDrag = (ev: PointerEvent): void => {
-    if (drag && drag.id === ev.pointerId) drag = null;
-  };
-  canvas.addEventListener('pointerup', endDrag);
-  canvas.addEventListener('pointercancel', endDrag);
+  canvas.addEventListener('pointerup', (ev) => {
+    if (!drag || drag.id !== ev.pointerId) return;
+    const d = drag;
+    endAddress();
+    if (overCancel(ev)) {
+      aim.yaw = d.yaw;
+      aim.pitch = d.pitch;
+      predDirty = true;
+      app.play('tap');
+      return;
+    }
+    if (ev.timeStamp - d.start < TAP_MS && d.moved < TAP_PX) {
+      note('Press and hold, slide to aim, then let go to swing.');
+      return;
+    }
+    fire();
+  });
+  canvas.addEventListener('pointercancel', (ev) => {
+    if (drag && drag.id === ev.pointerId) endAddress();
+  });
 
   const onKey = (ev: KeyboardEvent): void => {
     if (introOpen || resultShown) return;
@@ -311,17 +302,9 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
       case 'ArrowDown':
         aim.pitch = Math.max(PITCH_MIN, aim.pitch - fine);
         break;
-      case 'w':
-      case 'W':
-        setPower(aim.power + 0.02);
-        break;
-      case 's':
-      case 'S':
-        setPower(aim.power - 0.02);
-        break;
       case ' ':
       case 'Enter':
-        if (!ev.repeat) startSwing(null);
+        if (!ev.repeat) fire();
         break;
       case 'z':
         toggleZoom();
@@ -345,10 +328,6 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     }
   };
   window.addEventListener('keydown', onKey);
-  const onKeyUp = (ev: KeyboardEvent): void => {
-    if ((ev.key === ' ' || ev.key === 'Enter') && swing && swing.pointer === null) endSwing();
-  };
-  window.addEventListener('keyup', onKeyUp);
 
   // Stop the page from scrolling or zooming under the game; normal pages are unaffected.
   const stopTouch = (ev: TouchEvent): void => {
@@ -359,78 +338,19 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
 
   // ---------------------------------------------------------------- fire
 
-  const fire = (pw = aim.power): void => {
+  const fire = (): void => {
     if (session.phase !== 'aim' || introOpen) return;
     if (session.shotsLeft <= 0) return;
-    const ok = session.fire({ ball, yaw: aim.yaw, pitch: aim.pitch, power: pw });
+    const ok = session.fire({ ball, yaw: aim.yaw, pitch: aim.pitch, power: FULL });
     if (!ok) {
       app.play('error');
       return;
     }
-    app.play('thwack', pw);
+    app.play('thwack', FULL);
     app.buzz(10);
     advanceCoach('fire');
     renderAll();
   };
-
-  // The timed swing: hold SWING to wind up, let go as the meter reaches the power
-  // marker. A pure strike hits at exactly the planned power; otherwise the shot
-  // takes the power you let go at. "Timed swing" off in the pause menu taps to fire.
-  let swing: { start: number; pointer: number | null } | null = null;
-  const timed = (): boolean => !store.data.tapToFire;
-  const labelFire = (): void => {
-    fireLabel.textContent = timed() ? 'SWING' : 'FIRE';
-    fireBtn.setAttribute('aria-label', timed() ? 'Swing: hold, then let go at your power' : 'Fire');
-  };
-  labelFire();
-  const showCharge = (c: number): void => {
-    powerFill.style.width = `calc((100% - 28px) * ${c} + 9px)`;
-    powerFill.classList.toggle('pure', Math.abs(c - aim.power) <= PURE_WINDOW);
-  };
-  const showStrike = (st: Strike): void => {
-    const off = Math.round(Math.abs(st.miss) * 100);
-    powerVal.textContent = st.quality === 'pure' ? 'PURE' : `${st.miss > 0 ? '+' : '-'}${off}%`;
-    powerVal.classList.add(st.quality === 'pure' ? 'strike-pure' : 'strike-off');
-  };
-  const startSwing = (pointer: number | null): void => {
-    if (swing || session.phase !== 'aim' || introOpen || session.shotsLeft <= 0) return;
-    if (!timed()) return fire();
-    swing = { start: performance.now(), pointer };
-    el.classList.add('swinging');
-    fireLabel.textContent = 'LET GO';
-  };
-  const endSwing = (cancel = false): void => {
-    if (!swing) return;
-    const held = (performance.now() - swing.start) / 1000;
-    swing = null;
-    el.classList.remove('swinging');
-    labelFire();
-    const c = swingCharge(held);
-    if (cancel || (held < SWING_TIME && c < MIN_SWING)) {
-      setPower(aim.power);
-      if (!cancel) note('Hold SWING to wind up, then let go as the meter reaches your power marker.');
-      return;
-    }
-    const st = strike(c, aim.power);
-    fire(st.power);
-    showStrike(st);
-    if (st.quality === 'pure') app.buzz(18);
-  };
-  fireBtn.addEventListener('pointerdown', (ev) => {
-    ev.preventDefault();
-    fireBtn.setPointerCapture(ev.pointerId);
-    startSwing(ev.pointerId);
-  });
-  fireBtn.addEventListener('pointerup', (ev) => {
-    if (swing && swing.pointer === ev.pointerId) endSwing();
-  });
-  fireBtn.addEventListener('pointercancel', (ev) => {
-    if (swing && swing.pointer === ev.pointerId) endSwing(true);
-  });
-  // Screen readers and switch controls activate with a plain click: fire at the set power.
-  fireBtn.addEventListener('click', (ev) => {
-    if (ev.detail === 0) fire();
-  });
 
   const setFast = (on: boolean): void => {
     fast = on;
@@ -441,7 +361,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
 
   const tips = level.tips ?? [];
   let tipIndex = 0;
-  const coachKinds: Array<'drag' | 'power' | 'fire' | 'any'> = level.id === 'c1' && !store.data.coached ? ['drag', 'power', 'fire'] : [];
+  const coachKinds: Array<'drag' | 'fire' | 'any'> = level.id === 'c1' && !store.data.coached ? ['drag', 'fire'] : [];
   const showTip = (): void => {
     const t = tips[tipIndex];
     if (!t || introOpen) {
@@ -451,7 +371,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     coach.replaceChildren(h('p', { text: t }), h('button', { class: 'link', text: tipIndex < tips.length - 1 ? 'Next' : 'Got it', onClick: () => advanceCoach('any') }));
     coach.classList.remove('hidden');
   };
-  const advanceCoach = (kind: 'drag' | 'power' | 'fire' | 'any'): void => {
+  const advanceCoach = (kind: 'drag' | 'fire' | 'any'): void => {
     if (tipIndex >= tips.length) return;
     const need = coachKinds[tipIndex] ?? 'any';
     if (kind !== 'any' && need !== kind && kind !== 'fire') return;
@@ -492,7 +412,6 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     const aiming = session.phase === 'aim';
     el.classList.toggle('flying', !aiming);
     fireBtn.disabled = !aiming || session.shotsLeft <= 0;
-    if (aiming) setPower(aim.power);
     fastBtn.classList.toggle('hidden', aiming);
     if (aiming) setFast(false);
   };
@@ -681,7 +600,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
 
   const openPause = (): void => {
     if (resultShown) return;
-    endSwing(true);
+    endAddress();
     app.play('tap');
     const wasFast = fast;
     paused = true;
@@ -702,22 +621,6 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
       });
       return h('div', { class: 'setting-row' }, h('b', { text: label }), btn);
     };
-    const swingToggle = (): HTMLElement => {
-      const btn = h('button', {
-        class: `toggle${timed() ? ' on' : ''}`,
-        role: 'switch',
-        'aria-checked': String(timed()),
-        'aria-label': 'Timed swing',
-        onClick: () => {
-          store.data.tapToFire = !store.data.tapToFire;
-          store.save();
-          labelFire();
-          btn.classList.toggle('on', timed());
-          btn.setAttribute('aria-checked', String(timed()));
-        },
-      });
-      return h('div', { class: 'setting-row' }, h('b', { text: 'Timed swing' }), btn);
-    };
     const body = h(
       'div',
       { class: 'sheet-body' },
@@ -725,7 +628,6 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
       h('p', { class: 'muted', text: `${level.number} · ${level.title}` }),
       toggle('Sound', 'sound'),
       toggle('Reduce motion', 'reducedMotion'),
-      swingToggle(),
       h(
         'div',
         { class: 'sheet-actions stack' },
@@ -743,7 +645,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   // ------------------------------------------------------------ restart
 
   const restart = (): void => {
-    endSwing(true);
+    endAddress();
     if (session.phase === 'flight' && !resultShown) {
       // Restarting mid-shot is allowed: it just throws the attempt away.
     }
@@ -803,19 +705,19 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
       if (session.phase === 'flight' && events.some((e) => e.t === 'break' || e.t === 'release' || e.t === 'knock')) renderObjectives();
     }
     if (session.phase === 'aim' && predDirty) {
-      prediction = predict(session.world, { ball, yaw: aim.yaw, pitch: aim.pitch, power: aim.power }, session.mods(), 3.5);
+      prediction = predict(session.world, { ball, yaw: aim.yaw, pitch: aim.pitch, power: FULL }, session.mods(), 3.5);
       predDirty = false;
     }
     if (session.phase !== 'aim') predDirty = true;
     if (session.phase === 'done') finishLevel();
-    const charge = swing ? swingCharge((now - swing.start) / 1000) : null;
-    if (charge !== null) showCharge(charge);
+    // The golfer winds up while the thumb is down and swings through on release.
+    const windUp = drag ? Math.min(1, (now - drag.start) / 1000 / WIND_UP) : session.phase === 'aim' ? 0.15 : FULL;
     const view: ViewState = {
       phase: introOpen ? 'intro' : session.phase,
       ball,
       yaw: aim.yaw,
       pitch: aim.pitch,
-      power: charge ?? aim.power,
+      power: windUp,
       prediction: session.phase === 'aim' && !introOpen ? prediction : null,
       guideFull: session.guideFull,
       guideShare: BALLS[ball].guide,
@@ -840,17 +742,15 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     aim,
     renderer,
     fire,
-    setPower,
     selectBall,
     restart,
     togglePowerup,
-    /** Points the shot at a world point at the given power (tests and the smoke run). */
-    aimAt(x: number, y: number, z: number, pw: number): boolean {
-      const s = solveAim(session.world, ball, { x, y, z }, pw, session.mods());
+    /** Points the shot at a world point (tests and the smoke run). */
+    aimAt(x: number, y: number, z: number): boolean {
+      const s = solveAim(session.world, ball, { x, y, z }, FULL, session.mods());
       if (!s) return false;
       aim.yaw = s.yaw;
       aim.pitch = s.pitch;
-      setPower(pw);
       predDirty = true;
       return true;
     },
@@ -861,7 +761,6 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     destroy: () => {
       cancelAnimationFrame(raf);
       window.removeEventListener('keydown', onKey);
-      window.removeEventListener('keyup', onKeyUp);
       window.clearTimeout(noteTimer);
       document.querySelectorAll('.sheet-wrap').forEach((s) => s.remove());
       renderer.dispose();

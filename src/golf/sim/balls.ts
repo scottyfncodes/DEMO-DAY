@@ -74,7 +74,7 @@ export const BALLS: Record<BallId, BallDef> = {
   power: {
     id: 'power',
     name: 'Power',
-    blurb: 'Punches through brick and cracks foundations. Hooks at full power, and the guide shows less.',
+    blurb: 'Punches through brick and cracks foundations. Hooks right, and the guide shows less.',
     hint: 'punches through brick',
     radius: 0.12,
     mass: 1.3,

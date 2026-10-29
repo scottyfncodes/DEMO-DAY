@@ -55,7 +55,7 @@ function search(level: LevelDef, maxShots: number, rngSeed: number): S[] | null 
       const t = cands[i]!;
       for (const ball of balls) {
         if (!base.canUse(ball)) continue;
-        for (const power of (process.env.POWERS ?? '0.72,0.86,1').split(',').map(Number)) {
+        for (const power of (process.env.POWERS ?? '1').split(',').map(Number)) {
           const pus: PowerUpId[][] = [[]];
           for (const p of Object.keys(level.powerups) as PowerUpId[]) if ((base.powerups[p] ?? 0) > 0 && p !== 'precision') pus.push([p]);
           for (const pu of pus) {
