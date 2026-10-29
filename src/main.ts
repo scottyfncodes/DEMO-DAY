@@ -29,6 +29,22 @@ app.register('settings', settingsScreen);
 app.register('records', recordsScreen);
 app.go('title');
 
+// From the iOS Home Screen the viewport can come up short of the real screen, leaving a
+// dark band under fixed layers. There the app fills the whole screen, so size to it.
+const standalone = (navigator as Navigator & { standalone?: boolean }).standalone === true || window.matchMedia?.('(display-mode: standalone)').matches;
+if (standalone) {
+  const fit = (): void => {
+    const { width, height } = window.screen;
+    const portrait = window.matchMedia('(orientation: portrait)').matches;
+    // iOS reports the screen in portrait whatever the orientation.
+    const h = portrait ? Math.max(width, height) : Math.min(width, height);
+    document.documentElement.style.setProperty('--screen-h', `${Math.max(h, window.innerHeight)}px`);
+  };
+  fit();
+  window.addEventListener('resize', fit);
+  window.addEventListener('orientationchange', fit);
+}
+
 // Automation hook (used by the smoke tests).
 (window as unknown as { __demoDay?: App }).__demoDay = app;
 
