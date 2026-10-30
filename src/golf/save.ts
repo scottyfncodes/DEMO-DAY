@@ -1,7 +1,6 @@
 import { pickStorage, type StorageLike } from '../game/save';
-import { HOUSES, unlockedAt, type HouseDef } from './game/houses';
-import { REWARD, SPECIALS, emptyEconomy, type Economy, type SpecialId } from './game/rewards';
-import { TAG_ORDER, type ShotTag } from './game/quality';
+import { HOUSES, type HouseDef } from './game/houses';
+import { REWARD, SPECIALS, emptyEconomy, type Economy } from './game/rewards';
 import type { BallId } from './sim/balls';
 import { CAMPAIGN, type LevelDef } from './sim/levels';
 import type { WorldSnapshot } from './sim/world';
@@ -13,8 +12,9 @@ import type { WorldSnapshot } from './sim/world';
  * (it is only overwritten once there is real progress to keep).
  *
  * Version 2 adds the PLAY campaign: which houses are open and finished, the
- * special ball economy, and each house's damage, stored as a world snapshot
- * under its own key so a large house never risks the main save.
+ * special balls in the bag, which hidden balls each house has given up, and
+ * each house's damage, stored as a world snapshot under its own key so a
+ * large house never risks the main save.
  */
 
 export const GOLF_SAVE_KEY = 'demo-day:golf';
@@ -22,14 +22,18 @@ export const GOLF_SAVE_VERSION = 2;
 export const houseKey = (id: string): string => `${GOLF_SAVE_KEY}:house:${id}`;
 
 export interface HouseRecord {
-  /** Shots taken on this house, across sessions. */
+  /** Shots taken on this house since it was last built. */
   shots: number;
-  /** The objective has been met. */
+  /** The destruction goal has been reached (at least once). */
   done: boolean;
-  /** Shots it took to meet the objective (0 = not yet). */
+  /** Shots it took to reach the goal this time round (0 = not yet). */
   doneIn: number;
-  /** The arrival gift for this house has been paid. */
-  gifted: boolean;
+  /** Fewest shots it has ever taken to reach the goal (0 = never). */
+  bestIn: number;
+  /** Most of the house (percent) ever brought down. */
+  bestPct: number;
+  /** Bricks whose hidden ball has been found. They stay empty after a rebuild. */
+  found: number[];
 }
 
 export interface CampaignSave {
@@ -65,7 +69,7 @@ export function defaultGolfSave(): GolfSave {
 }
 
 export function emptyHouseRecord(): HouseRecord {
-  return { shots: 0, done: false, doneIn: 0, gifted: false };
+  return { shots: 0, done: false, doneIn: 0, bestIn: 0, bestPct: 0, found: [] };
 }
 
 export function emptyLevelRecord(): LevelRecord {
@@ -103,7 +107,8 @@ export function normalizeGolfSave(raw: unknown): GolfSave | null {
       const r = houses[h.id];
       if (!r || typeof r !== 'object') continue;
       const q = r as Record<string, unknown>;
-      out.campaign.houses[h.id] = { shots: Math.floor(num(q.shots)), done: q.done === true, doneIn: Math.floor(num(q.doneIn)), gifted: q.gifted === true };
+      const found = Array.isArray(q.found) ? q.found.filter((x): x is number => Number.isInteger(x) && (x as number) >= 0).slice(0, 64) : [];
+      out.campaign.houses[h.id] = { shots: Math.floor(num(q.shots)), done: q.done === true, doneIn: Math.floor(num(q.doneIn)), bestIn: Math.floor(num(q.bestIn, num(q.doneIn))), bestPct: Math.min(100, Math.floor(num(q.bestPct))), found };
     }
     if (typeof camp.current === 'string' && HOUSES.some((h, i) => h.id === camp.current && i <= out.campaign.reached)) out.campaign.current = camp.current;
     else out.campaign.current = (HOUSES[out.campaign.reached] as HouseDef).id;
@@ -115,16 +120,10 @@ export function normalizeGolfSave(raw: unknown): GolfSave | null {
   }
   const eco = o.economy && typeof o.economy === 'object' ? (o.economy as Record<string, unknown>) : null;
   if (eco) {
-    out.economy.meter = Math.min(REWARD.meterSize, num(eco.meter));
     const inv = eco.inventory && typeof eco.inventory === 'object' ? (eco.inventory as Record<string, unknown>) : {};
     for (const b of SPECIALS) {
       const n = Math.min(REWARD.cap, Math.floor(num(inv[b])));
       if (n > 0) out.economy.inventory[b] = n;
-    }
-    const fat = eco.fatigue && typeof eco.fatigue === 'object' ? (eco.fatigue as Record<string, unknown>) : {};
-    for (const t of TAG_ORDER) {
-      const n = Math.min(20, num(fat[t]));
-      if (n > 0) out.economy.fatigue[t as ShotTag] = n;
     }
   }
   return out;
@@ -181,39 +180,18 @@ export class GolfStore {
     return HOUSES.find((h) => h.id === this.data.campaign.current) ?? (HOUSES[0] as HouseDef);
   }
 
-  /** Specials the reward meter can pay out so far. */
-  unlockedSpecials(): SpecialId[] {
-    return unlockedAt(this.data.campaign.reached);
-  }
-
-  /** Adds specials to the inventory, up to the carry limit. */
-  grant(balls: Partial<Record<SpecialId, number>>): void {
-    const inv = this.data.economy.inventory;
-    for (const [b, n] of Object.entries(balls) as Array<[SpecialId, number]>) inv[b] = Math.min(REWARD.cap, (inv[b] ?? 0) + n);
-  }
-
-  /** Arriving at a house: makes it current and pays its introduction gift once. Returns the gift. */
-  enterHouse(h: HouseDef): Partial<Record<SpecialId, number>> {
+  /** Arriving at a house: it becomes the one the title screen goes back to. */
+  enterHouse(h: HouseDef): void {
     this.data.campaign.current = h.id;
-    const rec = this.houseRec(h.id);
-    let gift: Partial<Record<SpecialId, number>> = {};
-    if (!rec.gifted) {
-      rec.gifted = true;
-      if (h.unlocks) gift = { [h.unlocks]: 2 };
-      this.grant(gift);
-    }
     this.save();
-    return gift;
   }
 
-  /** Finishing a house: pays the prize, opens the next one. Returns the next house, if any. */
+  /** The destruction goal is reached: records the shots and opens the next house. Returns the next house, if any. */
   completeHouse(h: HouseDef): HouseDef | undefined {
     const rec = this.houseRec(h.id);
-    if (!rec.done) {
-      rec.done = true;
-      rec.doneIn = rec.shots;
-      this.grant(h.prize);
-    }
+    rec.done = true;
+    if (!rec.doneIn) rec.doneIn = rec.shots;
+    if (!rec.bestIn || rec.doneIn < rec.bestIn) rec.bestIn = rec.doneIn;
     const i = this.houseIndex(h.id);
     this.data.campaign.reached = Math.max(this.data.campaign.reached, Math.min(HOUSES.length - 1, i + 1));
     this.save();
@@ -251,6 +229,7 @@ export class GolfStore {
     this.clearHouse(id);
     const rec = this.houseRec(id);
     rec.shots = 0;
+    rec.doneIn = 0;
     this.save();
   }
 

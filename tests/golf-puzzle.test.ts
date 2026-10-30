@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { StorageLike } from '../src/game/save';
-import { AIM, isCancel, pullFrom, shotFor, yawStep } from '../src/golf/game/controls';
-import { HOUSES, houseLevel, unlockedAt } from '../src/golf/game/houses';
-import { evaluateShot, type ShotQuality } from '../src/golf/game/quality';
-import { REWARD, applyShot, emptyEconomy, meterLines, payoutFor } from '../src/golf/game/rewards';
-import { solvePull } from '../src/golf/game/solve';
+import { AIM, isCancel, powerFor, pullFrom } from '../src/golf/game/controls';
+import { HOUSES, houseLevel } from '../src/golf/game/houses';
+import { evaluateShot } from '../src/golf/game/quality';
+import { REWARD, emptyEconomy, stash } from '../src/golf/game/rewards';
+import { shotAt } from '../src/golf/game/solve';
 import { GOLF_SAVE_KEY, GolfStore, houseKey, normalizeGolfSave } from '../src/golf/save';
 import { predict, solveAim } from '../src/golf/sim/aim';
 import { getLevel } from '../src/golf/sim/levels';
@@ -29,37 +29,36 @@ const settle = (s: Session): void => {
   let guard = 0;
   while (s.phase === 'flight' && guard++ < 120 * 30) s.step();
 };
-const q = (tags: ShotQuality['tags'], pieces = 0): ShotQuality => ({ tags, headline: tags[0] ?? null, tier: 2, pieces, released: 0 });
+/** The shot for a target at a strong pull, the way the play screen makes it. */
+const solvePull = (w: World, ball: Shot['ball'], t: { x: number; y: number; z: number }, pull = 0.9): { shot: Shot } => shotAt(w, ball, t, pull);
 const h1 = HOUSES[0] as (typeof HOUSES)[number];
 
-describe('pull-back controls', () => {
-  it('a longer pull is a harder, higher shot; a short one cancels', () => {
+describe('touch-and-pull controls', () => {
+  it('a longer pull is more power; a short one only re-aims', () => {
     expect(isCancel(AIM.deadPx - 1)).toBe(true);
     expect(isCancel(AIM.deadPx + 1)).toBe(false);
     expect(pullFrom(0, 844)).toBe(0);
     expect(pullFrom(2000, 844)).toBe(1);
-    const a = shotFor('standard', 0, 0.2);
-    const b = shotFor('standard', 0, 0.8);
-    expect(b.power).toBeGreaterThan(a.power);
-    expect(b.pitch).toBeGreaterThan(a.pitch);
+    expect(powerFor(1)).toBeGreaterThan(powerFor(0.3));
   });
 
-  it('turns like a slingshot, finer when the thumb moves slowly', () => {
-    expect(yawStep(-10, 10)).toBeGreaterThan(0);
-    expect(Math.abs(yawStep(10, 200))).toBeLessThan(Math.abs(yawStep(10, 10)));
-    expect(shotFor('standard', 99, 0.5).yaw).toBe(AIM.yawMax);
-  });
-
-  it('covers the house from the footing to the roof, and the guide predicts the real hit', () => {
-    const w = new World(h1.spec, h1.yard);
-    const low = predict(w, shotFor('standard', -3, 0.35)).contact;
-    const high = predict(w, shotFor('standard', -3, 0.75)).contact;
-    expect(low && high).toBeTruthy();
-    expect((high?.py ?? 0) - (low?.py ?? 0)).toBeGreaterThan(1.5);
-    const aim = solvePull(w, 'standard', { x: -1.5, y: 1.6, z: 0.02 });
-    expect(aim).toBeTruthy();
-    const c = predict(w, aim!.shot).contact;
-    expect(Math.hypot((c?.px ?? 9) + 1.5, (c?.py ?? 9) - 1.6)).toBeLessThan(0.3);
+  it('aim and power are separate: full power at a low brick is a flat drive, soft is a lob, both land on it', () => {
+    const w = new World(HOUSES[0]!.spec, HOUSES[0]!.yard);
+    const target = { x: -1.5, y: 0.9, z: 0.02 };
+    const hard = shotAt(w, 'standard', target, 1);
+    const soft = shotAt(w, 'standard', target, 0.45);
+    expect(hard.reach && soft.reach).toBe(true);
+    expect(hard.shot.power).toBeGreaterThan(soft.shot.power);
+    expect(hard.shot.pitch).toBeLessThan(soft.shot.pitch);
+    for (const a of [hard, soft]) {
+      const c = predict(w, a.shot).contact;
+      expect(Math.hypot((c?.px ?? 9) - target.x, (c?.py ?? 9) - target.y)).toBeLessThan(0.25);
+    }
+    // Full power reaches the roof of the biggest house too.
+    const big = new World(HOUSES[9]!.spec, HOUSES[9]!.yard);
+    expect(shotAt(big, 'standard', { x: 2, y: big.info.wallTop - 0.3, z: 0.02 }, 1).reach).toBe(true);
+    // Too soft to get there flies short, and says so.
+    expect(shotAt(big, 'standard', { x: 2, y: big.info.wallTop - 0.3, z: 0.02 }, 0).reach).toBe(false);
   });
 });
 
@@ -92,46 +91,14 @@ describe('shot quality', () => {
   });
 });
 
-describe('the reward economy', () => {
-  it('skill fills the meter and the skill picks the ball', () => {
+describe('hidden balls', () => {
+  it('a found ball goes in the bag, up to the carry limit', () => {
     const e = emptyEconomy();
-    e.meter = 90;
-    const r = applyShot(e, q(['seam']), ['standard', 'power', 'heavy']);
-    expect(r.awarded).toEqual(['power']);
-    expect(r.reason).toBe('seam');
-    expect(e.inventory.power).toBe(1);
-    expect(e.meter).toBeCloseTo(90 + REWARD.tag.seam - REWARD.meterSize);
-  });
-
-  it('a locked ball pays out the scarcest open one instead, and a full bag waits', () => {
-    const e = emptyEconomy();
-    e.inventory = { power: 3 };
-    expect(payoutFor('support', e, ['standard', 'power', 'super'])).toBe('super');
-    e.inventory = { power: REWARD.cap };
-    expect(payoutFor('seam', e, ['standard', 'power'])).toBeNull();
-    e.meter = 99;
-    applyShot(e, q(['seam']), ['standard', 'power']);
-    expect(e.inventory.power).toBe(REWARD.cap);
-    expect(e.meter).toBe(REWARD.meterSize);
-  });
-
-  it('repeating the same easy trick is worth less each time, and recovers', () => {
-    const e = emptyEconomy();
-    const gains = [0, 1, 2].map(() => applyShot(e, q(['clean'], 1), ['standard']).gain);
-    expect(gains[1]).toBeLessThan(gains[0] as number);
-    expect(gains[2]).toBeLessThan(gains[1] as number);
-    for (let i = 0; i < 4; i++) applyShot(e, q([]), ['standard']);
-    expect(applyShot(e, q(['clean'], 1), ['standard']).gain).toBeCloseTo(gains[0] as number);
-  });
-
-  it('plain firing earns nothing; ordinary damage earns a little; a finished house earns half', () => {
-    const e = emptyEconomy();
-    expect(applyShot(e, q([]), ['standard']).gain).toBe(0);
-    expect(meterLines(q([], 3), e)[0]?.value).toBeCloseTo(3 * REWARD.perPiece);
-    expect(meterLines(q(['bank']), e, true)[0]?.value).toBeCloseTo(REWARD.tag.bank * REWARD.finishedHouse);
-    // A great shot fills more than half the meter; an ordinary hit is a sliver.
-    expect(REWARD.tag.house + REWARD.tag.support + REWARD.tag.chain).toBeGreaterThan(REWARD.meterSize * 0.6);
-    expect(REWARD.tag.clean + REWARD.perPiece).toBeLessThan(REWARD.meterSize * 0.1);
+    expect(stash(e, 'heavy')).toBe(true);
+    expect(e.inventory.heavy).toBe(1);
+    e.inventory.heavy = REWARD.cap;
+    expect(stash(e, 'heavy')).toBe(false);
+    expect(e.inventory.heavy).toBe(REWARD.cap);
   });
 });
 
@@ -178,13 +145,14 @@ describe('persistent houses', () => {
     const e = emptyEconomy();
     e.inventory.power = 1;
     const s = new Session(houseLevel(h1), 7, { ammo: e.inventory });
+    expect(s.level.objectives).toEqual([{ kind: 'destruction', pct: h1.goal }]);
     let done = 0;
     s.onComplete = () => done++;
     s.fire(solvePull(s.world, 'power', { x: -1.2, y: 1.5, z: 0.02 })!.shot);
     expect(e.inventory.power).toBe(0);
     expect(s.canUse('power')).toBe(false);
     settle(s);
-    for (let k = 0; k < 40 && !s.completed; k++) play(s, 'standard', -3.6 + (k % 12) * 0.6, 0.9 + (k % 3) * 0.3);
+    for (let k = 0; k < 60 && !s.completed; k++) play(s, 'standard', -3.6 + (k % 12) * 0.6, 0.9 + (k % 3) * 0.3);
     expect(s.completed).toBe(true);
     expect(done).toBe(1);
     play(s, 'standard', 3, 1.5);
@@ -225,23 +193,30 @@ describe('save v2', () => {
     expect(mem.getItem('demo-day:save')).toBe('{"money":4200}');
   });
 
-  it('pays a house gift once, its prize once, and opens the next house', () => {
+  it('reaching the goal opens the next house and records shots; a rebuild keeps the best and the found balls', () => {
     const store = new GolfStore(new Mem());
-    expect(store.enterHouse(h1)).toEqual({ power: 2 });
-    expect(store.enterHouse(h1)).toEqual({});
-    const next = store.completeHouse(h1);
-    expect(next?.id).toBe('h2');
+    store.enterHouse(h1);
+    const rec = store.houseRec('h1');
+    rec.shots = 9;
+    rec.found.push(42);
+    expect(store.completeHouse(h1)?.id).toBe('h2');
     expect(store.houseOpen('h2')).toBe(true);
-    expect(store.data.economy.inventory.power).toBe(2 + (h1.prize.power ?? 0));
+    expect(rec).toMatchObject({ done: true, doneIn: 9, bestIn: 9 });
+    store.rebuildHouse('h1');
+    expect(rec).toMatchObject({ shots: 0, doneIn: 0, bestIn: 9, found: [42] });
+    rec.shots = 6;
     store.completeHouse(h1);
-    expect(store.data.economy.inventory.power).toBe(2 + (h1.prize.power ?? 0));
-    expect(store.unlockedSpecials()).toEqual(unlockedAt(1));
+    expect(rec).toMatchObject({ doneIn: 6, bestIn: 6 });
+    rec.shots = 12;
+    store.rebuildHouse('h1');
+    rec.shots = 12;
+    store.completeHouse(h1);
+    expect(rec).toMatchObject({ doneIn: 12, bestIn: 6 });
   });
 
   it('keeps the economy and house damage across a reload, and reset clears both', () => {
     const mem = new Mem();
     const store = new GolfStore(mem);
-    store.data.economy.meter = 42;
     store.data.economy.inventory.heavy = 3;
     store.houseRec('h1').shots = 7;
     const w = new World(h1.spec, h1.yard);
@@ -250,22 +225,20 @@ describe('save v2', () => {
     store.saveHouse('h1', w.snapshot());
     store.save();
     const again = new GolfStore(mem);
-    expect(again.data.economy).toMatchObject({ meter: 42, inventory: { heavy: 3 } });
+    expect(again.data.economy).toMatchObject({ inventory: { heavy: 3 } });
     expect(again.houseRec('h1').shots).toBe(7);
     const w2 = new World(h1.spec, h1.yard);
     expect(w2.restore(again.loadHouse('h1')!)).toBe(true);
     expect(w2.destruction()).toBeCloseTo(w.destruction(), 6);
     again.reset();
     expect(mem.getItem(houseKey('h1'))).toBeNull();
-    expect(new GolfStore(mem).data.economy.meter).toBe(0);
+    expect(new GolfStore(mem).data.economy.inventory).toEqual({});
   });
 
   it('survives junk in the new fields', () => {
-    const n = normalizeGolfSave({ version: 2, campaign: { current: 'h9', reached: 99, houses: { h1: { shots: -4, done: 'yes' } } }, economy: { meter: 9999, inventory: { power: 400, bogus: 3 }, fatigue: { seam: -1 } } });
+    const n = normalizeGolfSave({ version: 2, campaign: { current: 'h9', reached: 99, houses: { h1: { shots: -4, done: 'yes', found: [3, -1, 'x', 7.5] } } }, economy: { meter: 9999, inventory: { power: 400, bogus: 3 }, fatigue: { seam: -1 } } });
     expect(n?.campaign.reached).toBe(HOUSES.length - 1);
-    expect(n?.campaign.houses.h1).toMatchObject({ shots: 0, done: false });
-    expect(n?.economy.meter).toBe(REWARD.meterSize);
-    expect(n?.economy.inventory).toEqual({ power: REWARD.cap });
-    expect(n?.economy.fatigue).toEqual({});
+    expect(n?.campaign.houses.h1).toMatchObject({ shots: 0, done: false, found: [3] });
+    expect(n?.economy).toEqual({ inventory: { power: REWARD.cap } });
   });
 });

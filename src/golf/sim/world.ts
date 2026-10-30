@@ -1199,7 +1199,7 @@ export class World {
       const state = snap.parts[i + 1] as number;
       const hp = snap.parts[i + 2] as number;
       p.state = state as PartState;
-      if (Number.isFinite(p.hp0)) p.hp = state === PartState.Intact ? Math.min(p.hp0, Math.max(0.001, hp)) : 0;
+      if (Number.isFinite(p.hp0)) p.hp = state === PartState.Intact ? Math.min(p.hp0, Math.max(0.001, hp)) : Math.min(p.hp0, Math.max(0, hp));
     }
     for (let i = 0; i < snap.rubble.length; i += SNAP_RUBBLE) {
       const id = snap.rubble[i] as number;

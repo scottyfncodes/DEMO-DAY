@@ -2,11 +2,11 @@ import type { App, ScreenInstance } from '../../app';
 import { h } from '../../ui/dom';
 import { ICON } from '../../ui/icons';
 import { sheet } from '../../ui/screens/common';
-import { clampYaw, isCancel, pullFrom, shotFor, yawStep } from '../game/controls';
-import { getHouse, houseLevel, type HouseDef } from '../game/houses';
-import { TAG_LABEL, TAG_ORDER, TAG_REASON, type ShotTag, type Tier } from '../game/quality';
-import { REWARD, SPECIALS, applyShot, type ShotReward, type SpecialId } from '../game/rewards';
-import { solvePull } from '../game/solve';
+import { isCancel, pullFrom } from '../game/controls';
+import { getHouse, hiddenBalls, houseLevel, type HouseDef } from '../game/houses';
+import { TAG_LABEL, TAG_ORDER, type ShotTag, type Tier } from '../game/quality';
+import { SPECIALS, stash, type SpecialId } from '../game/rewards';
+import { shotAt, type AimedShot } from '../game/solve';
 import { GolfRenderer, type ViewState } from '../render/scene';
 import { predict, type Prediction } from '../sim/aim';
 import { BALLS, BALL_ORDER, type BallId } from '../sim/balls';
@@ -66,7 +66,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   const kind: Kind = houseDef ? 'house' : id.startsWith('daily-') ? 'daily' : id === 'sandbox' ? 'sandbox' : 'challenge';
   const level = houseDef ? houseLevel(houseDef) : levelFor(id);
   const houseRec = houseDef ? store.houseRec(houseDef.id) : null;
-  const gift = houseDef ? store.enterHouse(houseDef) : {};
+  if (houseDef) store.enterHouse(houseDef);
 
   const build = (): Session => {
     if (houseDef) {
@@ -80,12 +80,16 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   };
   let session = build();
   if (kind !== 'house') store.started(level);
+  /** Bricks hiding a special ball (same bricks every visit). */
+  const hidden = houseDef ? hiddenBalls(houseDef, session.world.parts) : new Map<number, SpecialId>();
 
   const lowPower = (navigator.hardwareConcurrency ?? 8) <= 4;
-  const canvas = h('canvas', { class: 'golf-canvas', 'aria-label': 'The house and the tee. Press anywhere, pull back to aim and set power, let go to shoot.' });
+  const canvas = h('canvas', { class: 'golf-canvas', 'aria-label': 'The house and the tee. Touch where to hit, pull back for power, let go to shoot.' });
   const renderer = new GolfRenderer(canvas, session.world, { lowPower, reducedMotion: app.reducedMotion });
 
-  const aim = { yaw: 0, pull: 0.6 };
+  // What the ball is aimed at (set by touch) and how hard (set by the pull).
+  const aim = { target: { x: -1.5, y: 1.5, z: 0.02 }, pull: 0.7 };
+  let aimed: AimedShot | null = null;
   let ball: BallId = 'standard';
   let peek = false;
   let prediction: Prediction | null = null;
@@ -100,6 +104,8 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   let snapDirty = false;
   /** Keyboard aiming shows the guide without a thumb on the glass. */
   let keyAim = false;
+  /** The player has picked a target at least once (until then no mark is shown). */
+  let aimedOnce = false;
 
   // ---------------------------------------------------------------- HUD
 
@@ -114,21 +120,19 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   const card = h('div', { class: 'dd-card' }, titleEl, h('div', { class: 'dd-obj' }, objText, objCount), objBar, hint);
   const top = h('header', { class: 'dd-top' }, pauseBtn, card, peekBtn);
 
-  const meterFill = h('i', { class: 'dd-meter-fill' });
-  const meterLabel = h('span', { class: 'dd-meter-label', text: 'Next special ball' });
-  const meterGain = h('span', { class: 'dd-meter-gain' });
-  const meter = h('div', { class: `dd-meter${kind === 'house' ? '' : ' hidden'}`, role: 'progressbar', 'aria-label': 'Reward meter', 'aria-valuemin': '0', 'aria-valuemax': String(REWARD.meterSize) }, h('div', { class: 'dd-meter-track' }, meterFill), meterLabel, meterGain);
+  // Hidden balls: a slot each, filled in as they are found. What they are stays a surprise.
+  const finds = h('div', { class: `dd-finds${kind === 'house' ? '' : ' hidden'}`, role: 'status' });
   const scoreEl = h('div', { class: `dd-score${kind === 'house' || kind === 'sandbox' ? ' hidden' : ''}` });
   const tray = h('div', { class: 'dd-tray', role: 'radiogroup', 'aria-label': 'Ball' });
   const puRow = h('div', { class: 'dd-powerups' });
   const caption = h('p', { class: 'dd-caption', 'aria-live': 'polite' });
   // Screen readers and switch controls have no thumb to pull: this shoots at the current aim.
   const fireBtn = h('button', { class: 'dd-sr', text: 'Shoot', onClick: () => fire() });
-  const bottom = h('div', { class: 'dd-bottom' }, caption, meter, scoreEl, h('div', { class: 'dd-tray-row' }, tray, puRow), fireBtn);
+  const bottom = h('div', { class: 'dd-bottom' }, caption, finds, scoreEl, h('div', { class: 'dd-tray-row' }, tray, puRow), fireBtn);
 
   const headline = h('div', { class: 'dd-headline', 'aria-live': 'polite' });
   const banner = h('div', { class: 'dd-banner', role: 'status' });
-  const coach = h('div', { class: 'dd-coach hidden', 'aria-hidden': 'true' }, h('span', { class: 'dd-coach-hand' }), h('b', { text: 'Pull back, let go' }));
+  const coach = h('div', { class: 'dd-coach hidden', 'aria-hidden': 'true' }, h('span', { class: 'dd-coach-hand' }), h('b', { text: 'Touch a spot, pull back, let go' }));
 
   // The pull: a band from where the thumb went down to where it is, a power ring, and the number.
   const SVGNS = 'http://www.w3.org/2000/svg';
@@ -157,7 +161,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
 
   const count = (b: BallId): number => (b === 'standard' ? Infinity : (session.ammo[b] ?? 0));
   const trayBalls = (): BallId[] => {
-    if (kind === 'house') return ['standard', ...SPECIALS.filter((b) => store.unlockedSpecials().includes(b) || (econ.inventory[b] ?? 0) > 0)];
+    if (kind === 'house') return ['standard', ...SPECIALS.filter((b) => (econ.inventory[b] ?? 0) > 0)];
     return BALL_ORDER.filter((b) => b === 'standard' || b in level.balls);
   };
 
@@ -241,14 +245,14 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     const share = session.world.destruction() * 100;
     const d = share > 0 && share < 10 ? share.toFixed(1) : String(Math.floor(share));
     if (kind === 'house' && houseDef) {
-      titleEl.replaceChildren(h('span', { class: 'dd-no', text: houseDef.number }), h('b', { text: houseDef.name }), h('span', { class: 'dd-down', text: `${d}% down` }));
-      const o = houseDef.objective;
-      const [a, b] = session.progress(o);
+      const shots = houseRec?.shots ?? 0;
+      titleEl.replaceChildren(h('span', { class: 'dd-no', text: houseDef.number }), h('b', { text: houseDef.name }), h('span', { class: 'dd-down', text: `${shots} shot${shots === 1 ? '' : 's'}` }));
+      const goal = houseDef.goal;
       const done = session.completed;
-      objText.textContent = done ? 'Done. Keep going, or move on.' : objectiveText(o);
-      objCount.textContent = done ? '' : progressText(o, a, b);
-      objFill.style.transform = `scaleX(${done ? 1 : Math.min(1, b > 0 ? a / b : 0)})`;
-      objBar.setAttribute('aria-valuenow', String(Math.round(Math.min(1, b > 0 ? a / b : 0) * 100)));
+      objText.textContent = done ? `Goal reached in ${houseRec?.doneIn || shots}. Keep going, or move on.` : `Bring ${goal}% down`;
+      objCount.textContent = `${d}%`;
+      objFill.style.transform = `scaleX(${Math.min(1, share / goal)})`;
+      objBar.setAttribute('aria-valuenow', String(Math.round(Math.min(1, share / goal) * 100)));
       card.classList.toggle('done', done);
     } else if (kind === 'daily' || kind === 'sandbox' || level.mode === 'score') {
       titleEl.replaceChildren(h('span', { class: 'dd-no', text: level.number }), h('b', { text: level.title }), h('span', { class: 'dd-down', text: `${d}% down` }));
@@ -274,34 +278,58 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     return `${Math.min(a, b)}/${b}`;
   };
 
-  // ---------------------------------------------------------- the meter
+  // ----------------------------------------------------------- hidden balls
 
-  let meterShown = econ.meter;
-  let meterQueue: number[] = [];
-  const renderMeter = (dt: number): void => {
-    if (kind !== 'house') return;
-    const target = meterQueue.length ? (meterQueue[0] as number) : econ.meter;
-    const before = meterShown;
-    meterShown += Math.sign(target - meterShown) * Math.min(Math.abs(target - meterShown), dt * 70);
-    if (Math.floor(meterShown / 8) !== Math.floor(before / 8) && meterShown > before) app.play('meter', meterShown / REWARD.meterSize);
-    if (meterQueue.length && Math.abs(meterShown - target) < 0.01) {
-      meterQueue.shift();
-      if (target >= REWARD.meterSize) {
-        meter.classList.remove('pop');
-        void meter.offsetWidth;
-        meter.classList.add('pop');
-        meterShown = 0;
-      }
+  const renderFinds = (): void => {
+    if (!houseRec) return;
+    const found = houseRec.found.filter((id) => hidden.has(id));
+    finds.replaceChildren(h('span', { class: 'dd-finds-label', text: 'Hidden balls' }));
+    for (const [id, b] of hidden) {
+      const got = found.includes(id);
+      finds.append(h('span', { class: `dd-slot${got ? ' got' : ''}`, html: got ? ballSwatch(b, 22) : '', 'aria-hidden': 'true' }));
     }
-    meterFill.style.transform = `scaleX(${Math.min(1, meterShown / REWARD.meterSize)})`;
-    meter.setAttribute('aria-valuenow', String(Math.round(econ.meter)));
-    meter.classList.toggle('full', econ.meter >= REWARD.meterSize);
+    finds.setAttribute('aria-label', `${found.length} of ${hidden.size} hidden balls found`);
+  };
+
+  /** A brick with a ball inside broke or fell: out it pops. */
+  const reveal = (partId: number): void => {
+    const b = hidden.get(partId);
+    if (!b || !houseRec || houseRec.found.includes(partId)) return;
+    houseRec.found.push(partId);
+    const kept = stash(econ, b);
+    store.save();
+    const p = session.world.parts[partId] as Part;
+    const d = session.world.debrisOf(partId);
+    renderer.revealBall(d ? d.x : p.x, d ? d.y : p.y, (d ? d.z : p.z) + 0.2, b);
+    app.play('earned');
+    app.buzz([10, 40, 10, 40, 20]);
+    showBanner(`Found a ${BALLS[b].name} ball`, kept ? `${BALLS[b].hint[0]?.toUpperCase()}${BALLS[b].hint.slice(1)}. It is in your bag.` : 'Your bag is full of these, so it rolls away.', b);
+    renderFinds();
+    renderTray();
+    const chip = tray.querySelector(`[data-ball="${b}"]`);
+    chip?.classList.add('fresh');
+    window.setTimeout(() => chip?.classList.remove('fresh'), 1400);
   };
 
   // -------------------------------------------------------------- pulling
 
-  let drag: { id: number; y0: number; x0: number; lastX: number; lastT: number; armed: boolean } | null = null;
+  let drag: { id: number; y0: number; x0: number; armed: boolean } | null = null;
   const blocked = (): boolean => modal || paused || resultShown || session.phase !== 'aim' || session.shotsLeft <= 0;
+
+  /** What is under a screen point: the first solid thing along the view ray, or the lawn. */
+  const pick = (sx: number, sy: number): { x: number; y: number; z: number } | null => {
+    const r = renderer.ray(sx, sy);
+    const w = session.world;
+    for (let t = 1; t < 90; t += 0.08) {
+      const x = r.ox + r.dx * t;
+      const y = r.oy + r.dy * t;
+      const z = r.oz + r.dz * t;
+      if (y <= 0.05) return { x, y: 0.12, z };
+      const c = w.contactAt(x, y, z, 0.03);
+      if (c) return { x: c.px + c.nx * 0.02, y: c.py + c.ny * 0.02, z: c.pz + c.nz * 0.02 };
+    }
+    return null;
+  };
 
   const drawPull = (x: number, y: number): void => {
     if (!drag) return;
@@ -319,37 +347,38 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     ring.setAttribute('stroke-dasharray', `${RING_LEN * aim.pull} ${RING_LEN}`);
     svg.classList.toggle('max', aim.pull >= 0.999);
     svg.classList.toggle('cancel', !drag.armed);
+    svg.classList.toggle('short', drag.armed && !!aimed && !aimed.reach);
     label.setAttribute('x', String(drag.x0));
     label.setAttribute('y', String(drag.y0 - 44));
-    label.textContent = drag.armed ? `${Math.round(aim.pull * 100)}%` : 'Pull back';
+    label.textContent = !drag.armed ? 'Pull back' : aimed && !aimed.reach ? 'Too soft' : `${Math.round(aim.pull * 100)}%`;
   };
 
   const endPull = (): void => {
     drag = null;
-    svg.classList.remove('on', 'max', 'cancel');
+    svg.classList.remove('on', 'max', 'cancel', 'short');
     el.classList.remove('pulling');
   };
 
+  // Touch: the spot under the thumb becomes the target. Pull back: power. Let go: shoot.
+  // Letting go without a pull keeps the new target, so aiming and shooting can be separate.
   canvas.addEventListener('pointerdown', (ev) => {
     if (drag || blocked()) return;
     canvas.setPointerCapture(ev.pointerId);
-    keyAim = false;
-    drag = { id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, lastX: ev.clientX, lastT: ev.timeStamp, armed: false };
-    aim.pull = 0;
+    const t = pick(ev.clientX, ev.clientY);
+    if (t) aim.target = t;
+    aimedOnce = true;
+    keyAim = true;
+    drag = { id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, armed: false };
     el.classList.add('pulling');
     predDirty = true;
     drawPull(ev.clientX, ev.clientY);
   });
   canvas.addEventListener('pointermove', (ev) => {
     if (!drag || drag.id !== ev.pointerId) return;
-    const dx = ev.clientX - drag.lastX;
-    aim.yaw = clampYaw(aim.yaw + yawStep(dx, ev.timeStamp - drag.lastT));
-    drag.lastX = ev.clientX;
-    drag.lastT = ev.timeStamp;
-    const dy = ev.clientY - drag.y0;
+    const back = Math.max(0, ev.clientY - drag.y0);
     const was = aim.pull;
-    aim.pull = pullFrom(dy, renderer.height || window.innerHeight);
-    const armed = !isCancel(dy);
+    const armed = !isCancel(back);
+    if (armed) aim.pull = pullFrom(back, renderer.height || window.innerHeight);
     if (armed && !drag.armed) app.buzz(6);
     if (aim.pull >= 0.999 && was < 0.999) app.buzz(10);
     drag.armed = armed;
@@ -368,28 +397,27 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   });
 
   const onKey = (ev: KeyboardEvent): void => {
-    if (modal || resultShown || paused) {
-      if (ev.key === 'Escape' && paused) return;
-      return;
-    }
-    const fine = ev.shiftKey ? 0.1 : 0.6;
+    if (modal || resultShown || paused) return;
+    const step = ev.shiftKey ? 0.05 : 0.3;
     let handled = true;
     switch (ev.key) {
       case 'ArrowLeft':
-        aim.yaw = clampYaw(aim.yaw - fine);
-        keyAim = true;
+        aim.target.x -= step;
         break;
       case 'ArrowRight':
-        aim.yaw = clampYaw(aim.yaw + fine);
-        keyAim = true;
+        aim.target.x += step;
         break;
       case 'ArrowUp':
-        aim.pull = Math.min(1, aim.pull + (ev.shiftKey ? 0.005 : 0.03));
-        keyAim = true;
+        aim.target.y = Math.min(16, aim.target.y + step);
         break;
       case 'ArrowDown':
-        aim.pull = Math.max(0, aim.pull - (ev.shiftKey ? 0.005 : 0.03));
-        keyAim = true;
+        aim.target.y = Math.max(0.12, aim.target.y - step);
+        break;
+      case 'w':
+        aim.pull = Math.min(1, aim.pull + (ev.shiftKey ? 0.01 : 0.05));
+        break;
+      case 's':
+        aim.pull = Math.max(0, aim.pull - (ev.shiftKey ? 0.01 : 0.05));
         break;
       case ' ':
       case 'Enter':
@@ -409,6 +437,8 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
       }
     }
     if (handled) {
+      keyAim = true;
+      aimedOnce = true;
       predDirty = true;
       ev.preventDefault();
     }
@@ -428,7 +458,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
 
   const fire = (): void => {
     if (blocked()) return;
-    const shot = shotFor(ball, aim.yaw, aim.pull);
+    const shot = shotAt(session.world, ball, aim.target, aim.pull, session.mods()).shot;
     session.focus = new Set([...pins, ...weak]);
     if (!session.fire(shot)) {
       app.play('error');
@@ -486,7 +516,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     void banner.offsetWidth;
     banner.classList.add('show');
     window.clearTimeout(bannerTimer);
-    bannerTimer = window.setTimeout(() => banner.classList.remove('show'), 3600);
+    bannerTimer = window.setTimeout(() => banner.classList.remove('show'), 4500);
   };
 
   // ------------------------------------------------------- sound and feel
@@ -565,33 +595,8 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     const q = r.quality;
     if (q.headline) showHeadline(q.headline, '');
     if (kind === 'house' && houseRec && houseDef) {
-      const unlocked: BallId[] = ['standard', ...store.unlockedSpecials()];
-      const before = econ.meter;
-      const reward: ShotReward = applyShot(econ, q, unlocked, houseRec.done);
+      houseRec.bestPct = Math.max(houseRec.bestPct, Math.floor(session.world.destruction() * 100));
       store.save();
-      if (reward.gain > 0.5) {
-        meterGain.textContent = `+${Math.round(reward.gain)}`;
-        meterGain.classList.remove('show');
-        void meterGain.offsetWidth;
-        meterGain.classList.add('show');
-        if (q.headline) showHeadline(q.headline, `+${Math.round(reward.gain)}`);
-      }
-      // Animate up to each full meter, then on to what is left.
-      meterQueue = [...reward.awarded.map(() => REWARD.meterSize), econ.meter];
-      if (!reward.awarded.length && econ.meter < before) meterShown = econ.meter;
-      if (reward.awarded.length) {
-        const b = reward.awarded[0] as SpecialId;
-        const why = reward.reason ? `${TAG_LABEL[reward.reason].toLowerCase().replace(/^\w/, (c) => c.toUpperCase())}: ${TAG_REASON[reward.reason]}` : 'Steady damage filled the meter';
-        window.setTimeout(() => {
-          app.play('earned');
-          app.buzz([10, 40, 10, 40, 20]);
-          showBanner(reward.awarded.length > 1 ? `${reward.awarded.length} specials earned` : `${BALLS[b].name} earned`, why, b);
-          renderTray();
-          const chip = tray.querySelector(`[data-ball="${b}"]`);
-          chip?.classList.add('fresh');
-          window.setTimeout(() => chip?.classList.remove('fresh'), 1400);
-        }, 700);
-      }
       snapDirty = true;
     } else if (r.points > 0) {
       if (!q.headline) showHeadline('clean', `+${fmt(r.points)}`);
@@ -623,15 +628,14 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   const showHouseDone = (next: HouseDef | undefined): void => {
     if (!houseDef || !houseRec) return;
     modal = true;
-    const prize = Object.entries(houseDef.prize) as Array<[SpecialId, number]>;
+    const best = houseRec.bestIn && houseRec.bestIn < houseRec.doneIn ? ` Your best is ${houseRec.bestIn}.` : houseRec.bestIn === houseRec.doneIn && houseRec.doneIn ? ' A new best.' : '';
     const body = h(
       'div',
       { class: 'sheet-body dd dd-sheet' },
-      h('p', { class: 'dd-kicker', text: `House ${houseDef.number} finished` }),
+      h('p', { class: 'dd-kicker', text: `House ${houseDef.number} · goal reached` }),
       h('h2', { text: houseDef.name }),
-      h('p', { class: 'dd-lede', text: `${objectiveText(houseDef.objective)} in ${houseRec.doneIn} shot${houseRec.doneIn === 1 ? '' : 's'}.` }),
-      h('div', { class: 'dd-prize' }, h('span', { class: 'dd-prize-label', text: 'Prize' }), ...prize.map(([b, n]) => h('span', { class: 'dd-prize-ball' }, h('span', { class: 'dd-swatch', html: ballSwatch(b, 30) }), h('b', { text: `${n}` }), h('span', { text: n === 1 ? BALLS[b].name : `${BALLS[b].name}s` })))),
-      next?.unlocks ? h('p', { class: 'dd-note', text: `Next up: ${next.name}. It brings a new ball, the ${BALLS[next.unlocks].name}.` }) : next ? h('p', { class: 'dd-note', text: `Next up: ${next.name}.` }) : h('p', { class: 'dd-note', text: 'That was the last house on the street. Rebuild any of them from the house list and go again.' }),
+      h('p', { class: 'dd-lede', text: `${houseDef.goal}% down in ${houseRec.doneIn} shot${houseRec.doneIn === 1 ? '' : 's'}.${best}` }),
+      next ? h('p', { class: 'dd-note', text: `Next up: ${next.name}, a bigger house. Fewer shots is better: rebuild any house from the pause menu to beat your count.` }) : h('p', { class: 'dd-note', text: 'That was the biggest house on the street. Rebuild any of them from the pause menu and beat your shot count.' }),
     );
     const actions = h('div', { class: 'sheet-actions stack' });
     if (next) actions.append(h('button', { class: 'btn primary lg', onClick: () => (s.close(), app.go('golf', { id: next.id })) }, h('span', { text: `Next house` })));
@@ -641,7 +645,6 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
       modal = false;
       renderAll();
     });
-    renderTray();
   };
 
   const finishRun = (): void => {
@@ -862,6 +865,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     if (events.length) {
       renderer.ingest(events);
       sounds(events);
+      if (hidden.size) for (const e of events) if ((e.t === 'break' || e.t === 'release') && hidden.has(e.part)) reveal(e.part);
       const q = session.liveQuality();
       if (q) {
         if (q.headline) showHeadline(q.headline);
@@ -878,18 +882,19 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
       weakDirty = false;
     }
     if (snapDirty && aiming && session.world.settled) persist();
-    const showGuide = aiming && !blocked() && (drag?.armed || keyAim);
-    if (showGuide && predDirty) {
-      prediction = predict(session.world, shotFor(ball, aim.yaw, aim.pull), session.mods(), 4);
-      predDirty = false;
+    const showGuide = aiming && !blocked() && (!!drag || keyAim);
+    if (aiming && predDirty) {
+      aimed = shotAt(session.world, ball, aim.target, aim.pull, session.mods());
+      prediction = showGuide ? predict(session.world, aimed.shot, session.mods(), 4) : null;
+      predDirty = !showGuide;
+      if (drag) drawPull(Number(knob.getAttribute('cx')), Number(knob.getAttribute('cy')));
     }
     if (session.phase === 'done') finishRun();
-    renderMeter(realDt);
     const view: ViewState = {
       phase: session.phase,
       ball,
-      yaw: aim.yaw,
-      pitch: shotFor(ball, aim.yaw, aim.pull).pitch,
+      yaw: aimed?.shot.yaw ?? 0,
+      pitch: aimed?.shot.pitch ?? 10,
       power: drag || keyAim ? aim.pull : aiming ? 0.1 : 1,
       prediction: showGuide ? prediction : null,
       guideFull: true,
@@ -899,6 +904,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
       zoom: false,
       pins: aiming ? pins : [],
       weak: aiming ? weak : [],
+      target: aiming && aimedOnce ? aim.target : null,
     };
     renderer.update(realDt * scale, view);
     renderer.render();
@@ -908,12 +914,8 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   renderAll();
   if (kind === 'challenge') openIntro();
   if (houseDef) {
-    hint.textContent = houseDef.hint;
-    const g = Object.entries(gift) as Array<[SpecialId, number]>;
-    if (g.length) {
-      const [b, n] = g[0] as [SpecialId, number];
-      window.setTimeout(() => showBanner(`New ball: ${BALLS[b].name}`, `${n} to try. ${BALLS[b].blurb}`, b), 600);
-    } else if (session.completed) hint.textContent = 'Finished. Keep smashing, or pick the next house from the menu.';
+    hint.textContent = session.completed ? 'Goal reached. Keep smashing, or pick the next house from the menu.' : `${houseDef.hint} ${hidden.size} special balls are hidden in its bricks.`;
+    renderFinds();
   } else if (kind === 'daily') hint.textContent = level.blurb;
   else if (kind === 'sandbox') hint.textContent = 'Every special ball, unlimited. Pause to rebuild the house.';
   if (!store.data.coached && kind === 'house') coach.classList.remove('hidden');
@@ -933,15 +935,15 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
     persist,
     togglePowerup,
     /** Points the shot at a world point with the real controls (tests and the smoke run). */
-    aimAt(x: number, y: number, z: number): boolean {
-      const s = solvePull(session.world, ball, { x, y, z }, session.mods());
-      if (!s) return false;
-      aim.yaw = s.yaw;
-      aim.pull = s.pull;
+    aimAt(x: number, y: number, z: number, pull = 0.85): boolean {
+      aim.target = { x, y, z };
+      aim.pull = pull;
+      aimedOnce = true;
       keyAim = true;
       predDirty = true;
-      return true;
+      return shotAt(session.world, ball, aim.target, pull, session.mods()).reach;
     },
+    hidden,
   };
 
   return {
