@@ -49,7 +49,12 @@ export type Cue =
   | 'ping'
   | 'rustle'
   | 'seam'
-  | 'thump';
+  | 'thump'
+  | 'snap'
+  | 'meter'
+  | 'earned'
+  | 'special'
+  | 'houseDown';
 
 /** Flavour for cues that vary: a charge type or a material. */
 export type Variant = 'small' | 'heavy' | 'directional' | 'shaped' | 'wood' | 'brick' | 'concrete' | 'steel';
@@ -103,7 +108,7 @@ export class AudioEngine {
     // Rate-limit noisy cues so a big collapse does not clip.
     const last = this.lastCue.get(cue) ?? -1;
     const minGap =
-      cue === 'impact' || cue === 'crumble' ? 0.06 : cue === 'push' ? 0.3 : cue === 'engine' ? 0.18 : cue === 'crack' || cue === 'glass' ? 0.05 : cue === 'ping' || cue === 'thump' ? 0.035 : cue === 'rustle' ? 0.25 : cue === 'failMajor' || cue === 'heavyLanding' ? 0.18 : cue === 'creak' ? 0.6 : 0.02;
+      cue === 'impact' || cue === 'crumble' ? 0.06 : cue === 'push' ? 0.3 : cue === 'engine' ? 0.18 : cue === 'crack' || cue === 'glass' ? 0.05 : cue === 'ping' || cue === 'thump' ? 0.035 : cue === 'rustle' ? 0.25 : cue === 'failMajor' || cue === 'heavyLanding' ? 0.18 : cue === 'creak' ? 0.6 : cue === 'snap' ? 0.12 : cue === 'meter' ? 0.07 : 0.02;
     if (now - last < minGap) return;
     this.lastCue.set(cue, now);
     switch (cue) {
@@ -293,6 +298,37 @@ export class AudioEngine {
       case 'thump':
         this.thud(110 + strength * 40, 0.12, 0.12 + strength * 0.2);
         this.noise(0.05, 0.05 + strength * 0.06, 700, 'lowpass');
+        break;
+      case 'snap':
+        // A support letting go: a dry timber crack, the load dropping onto it, and grit.
+        this.crack('wood', 1);
+        this.noise(0.02, 0.7, 6000, 'highpass');
+        this.thud(64, 0.5, 0.55 + strength * 0.3, 0.05);
+        this.noise(0.6, 0.18, 900, 'lowpass', 0.08);
+        break;
+      case 'meter':
+        // The reward meter filling: a soft tick that climbs with the fill.
+        this.blip(520 + strength * 700, 0.05, 0.07, 0, 'triangle');
+        break;
+      case 'earned':
+        // A special ball earned: a quick rising run that lands on a bright bell.
+        [659, 784, 988, 1318].forEach((f, i) => this.blip(f, 0.12, 0.13, i * 0.06, 'triangle'));
+        this.blip(2637, 0.5, 0.06, 0.26, 'sine');
+        this.blip(1976, 0.6, 0.05, 0.27, 'sine');
+        break;
+      case 'special':
+        // A special ball leaving the tee: a deeper thwack with a rising whoosh.
+        this.noise(0.03, 0.6, 4800, 'highpass');
+        this.thud(120, 0.18, 0.5);
+        this.sweepNoise(0.7, 0.16, 500, 3600);
+        this.blip(880, 0.08, 0.07, 0.02, 'square');
+        break;
+      case 'houseDown':
+        // A house finished: a long rumble under a brass-like fanfare.
+        this.thud(36, 1.6, 0.9);
+        this.noise(2.4, 0.4, 260, 'lowpass');
+        this.chord([392, 523, 659], 0.5, 0.26);
+        window.setTimeout(() => this.chord([523, 659, 784, 1046], 1.1, 0.3), 260);
         break;
       case 'newBest':
         this.chord([523, 659, 784], 0.4, 0.22);

@@ -10,7 +10,7 @@ import { Rng, hashString } from './math';
  */
 
 export type PowerUpId = 'drive' | 'ricochet' | 'precision' | 'golfers';
-export type Mode = 'campaign' | 'score' | 'precision' | 'sandbox' | 'daily';
+export type Mode = 'campaign' | 'score' | 'precision' | 'sandbox' | 'daily' | 'house';
 
 export type Objective =
   | { kind: 'bricks'; n: number }
@@ -22,6 +22,7 @@ export type Objective =
   | { kind: 'chain'; n: number }
   | { kind: 'collapse'; what: 'roof' | 'porch' | 'chimney' | 'floor'; n: number }
   | { kind: 'destruction'; pct: number }
+  | { kind: 'wall'; wall: 'front' | 'back' | 'left' | 'right'; pct: number }
   | { kind: 'decor'; n: number }
   | { kind: 'score'; n: number };
 
@@ -60,7 +61,7 @@ export const POWERUPS: Record<PowerUpId, { name: string; blurb: string; hint: st
   golfers: { name: 'Multi-Golfer', blurb: 'Three golfers tee off together, side by side, with your aim.', hint: 'three tees at once' },
 };
 
-const yardBasic: YardSpec = {
+export const yardBasic: YardSpec = {
   trees: [
     { x: -8, z: 7, s: 1 },
     { x: 9.5, z: 3, s: 0.9 },
@@ -73,7 +74,7 @@ const yardBasic: YardSpec = {
   ],
 };
 
-const yardParty: YardSpec = {
+export const yardParty: YardSpec = {
   trees: [
     { x: -8.5, z: 6, s: 1.05 },
     { x: 9.5, z: 2, s: 0.9 },
@@ -95,10 +96,10 @@ const yardParty: YardSpec = {
   ],
 };
 
-const house = (o: Partial<HouseSpec> & { palette: HouseSpec['palette'] }): HouseSpec => ({ storeys: 2, porch: true, chimney: true, furnish: true, ...o });
+export const house = (o: Partial<HouseSpec> & { palette: HouseSpec['palette'] }): HouseSpec => ({ storeys: 2, porch: true, chimney: true, furnish: true, ...o });
 
-const oldPatch = (wall: Zone['wall'], a0: number, a1: number, y0: number, y1: number): Zone => ({ wall, a0, a1, y0, y1, mat: 'oldBrick' });
-const reinforced = (wall: Zone['wall'], a0: number, a1: number, y0: number, y1: number): Zone => ({ wall, a0, a1, y0, y1, mat: 'foundation' });
+export const oldPatch = (wall: Zone['wall'], a0: number, a1: number, y0: number, y1: number): Zone => ({ wall, a0, a1, y0, y1, mat: 'oldBrick' });
+export const reinforced = (wall: Zone['wall'], a0: number, a1: number, y0: number, y1: number): Zone => ({ wall, a0, a1, y0, y1, mat: 'foundation' });
 
 export const CAMPAIGN: LevelDef[] = [
   {
@@ -106,7 +107,7 @@ export const CAMPAIGN: LevelDef[] = [
     mode: 'campaign',
     number: '01',
     title: 'First Swing',
-    blurb: 'Press, slide to aim, let go to swing. Knock three bricks out of the front wall.',
+    blurb: 'Six shots to knock three bricks out of the front wall.',
     house: house({ storeys: 1, chimney: false, palette: PALETTES.honey as HouseSpec['palette'], zones: [oldPatch('front', -4.5, 4.5, 0.6, 3.3)] }),
     yard: yardBasic,
     shots: 6,
@@ -339,35 +340,31 @@ export const SANDBOX: LevelDef = {
   powerups: { drive: Infinity, ricochet: Infinity, precision: Infinity, golfers: Infinity },
 };
 
-/** A fixed layout per calendar day, built from the date alone. Same day, same challenge, on every device. */
+/**
+ * Daily Demo: one house per calendar day, built from the date alone, so
+ * every device gets the same one. Eight shots, scored on damage and skill.
+ */
 export function dailyLevel(date: string): LevelDef {
   const rng = new Rng(hashString(`demo-day:${date}`));
   const palettes = Object.values(PALETTES);
   const palette = palettes[Math.floor(rng.next() * palettes.length)] as HouseSpec['palette'];
   const storeys: 1 | 2 = rng.next() < 0.3 ? 1 : 2;
-  const pick = rng.next();
-  const objectives: Objective[] =
-    pick < 0.25
-      ? [{ kind: 'destruction', pct: storeys === 1 ? 16 : 12 }]
-      : pick < 0.5
-        ? [{ kind: 'windows', n: 5 }]
-        : pick < 0.75
-          ? [{ kind: 'bricks', n: 20 }]
-          : [{ kind: 'score', n: 3000 }];
+  const weak = rng.next();
+  const zones: Zone[] = weak < 0.3 ? [oldPatch('front', -4.5, 4.5, 0.6, 2.1)] : weak < 0.55 ? [reinforced('front', -4.5, 4.5, 0.6, 1.2)] : weak < 0.8 ? [oldPatch('front', -4.5, -2.7, 0.6, 6), oldPatch('front', 2.7, 4.5, 0.6, 6)] : [];
   const windX = Math.round((rng.next() - 0.5) * 8) / 10;
   return {
     id: `daily-${date}`,
     mode: 'daily',
-    number: 'DC',
-    title: 'Daily Challenge',
-    blurb: `${date}. One layout for everyone today, scored on this device.`,
-    house: house({ storeys, palette, chimney: rng.next() < 0.7, porch: rng.next() < 0.8 }),
+    number: 'DD',
+    title: 'Daily Demo',
+    blurb: 'Eight shots at today\'s house. Damage scores, and skill shots score more.',
+    house: house({ storeys, palette, chimney: rng.next() < 0.7, porch: rng.next() < 0.8, zones }),
     yard: rng.next() < 0.5 ? yardBasic : yardParty,
-    shots: 6,
-    par: 4,
-    objectives,
-    balls: { power: 1 + Math.floor(rng.next() * 2), super: 1, heavy: rng.next() < 0.5 ? 1 : 0, blast: rng.next() < 0.4 ? 1 : 0, multi: 1 },
-    powerups: { drive: 1 },
+    shots: 8,
+    par: 8,
+    objectives: [],
+    balls: { power: 1 + Math.floor(rng.next() * 2), super: 1, heavy: rng.next() < 0.5 ? 1 : 0, blast: rng.next() < 0.6 ? 1 : 0, multi: 1 },
+    powerups: {},
     wind: { x: windX, z: 0 },
   };
 }
@@ -401,6 +398,8 @@ export function objectiveText(o: Objective): string {
       return o.what === 'roof' ? `Drop ${o.n} roof sections` : o.what === 'porch' ? 'Drop the porch roof' : o.what === 'chimney' ? 'Bring down the chimney' : 'Collapse a floor';
     case 'destruction':
       return `Demolish ${o.pct}% of the house`;
+    case 'wall':
+      return `Bring down ${o.pct}% of the ${o.wall} wall`;
     case 'decor':
       return `Clear ${o.n} garden pieces`;
     case 'score':

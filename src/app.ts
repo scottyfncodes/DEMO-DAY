@@ -3,7 +3,7 @@ import { SaveStore, type SaveData } from './game/save';
 import { GolfStore } from './golf/save';
 import { clear, h, haptic } from './ui/dom';
 
-export type ScreenName = 'title' | 'levels' | 'golf' | 'golf-settings' | 'classic' | 'jobs' | 'brief' | 'play' | 'garage' | 'settings' | 'records';
+export type ScreenName = 'title' | 'levels' | 'houses' | 'challenges' | 'golf' | 'golf-settings' | 'classic' | 'jobs' | 'brief' | 'play' | 'garage' | 'settings' | 'records';
 
 export interface ScreenInstance {
   el: HTMLElement;

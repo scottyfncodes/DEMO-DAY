@@ -2,89 +2,88 @@ import type { App, ScreenInstance } from '../../app';
 import { h } from '../../ui/dom';
 import { ICON } from '../../ui/icons';
 import { sheet } from '../../ui/screens/common';
+import { HOUSES, houseLevel, type HouseDef } from '../game/houses';
+import { REWARD, SPECIALS } from '../game/rewards';
 import { GolfRenderer, type ViewState } from '../render/scene';
-import { solveAim } from '../sim/aim';
 import { BALLS, type BallId } from '../sim/balls';
-import { CAMPAIGN, PRECISION, SANDBOX, SCORE_ATTACK, dailyLevel, objectiveText, type LevelDef } from '../sim/levels';
-import { Rng } from '../sim/math';
-import { PartState } from '../sim/parts';
+import { CAMPAIGN, PRECISION, SCORE_ATTACK, objectiveText, type LevelDef } from '../sim/levels';
 import { Session } from '../sim/session';
-import { DT } from '../sim/world';
-import { MODE_UNLOCK, modeOpen, todayKey } from '../save';
+import { World } from '../sim/world';
+import { MODE_UNLOCK, modeOpen, todayKey, type GolfStore } from '../save';
 import { GICON, ballSwatch } from './icons';
 
 /** Header with a back button for golf pages. */
 function pageHead(app: App, title: string, back: () => void = () => app.go('title')): HTMLElement {
-  return h('header', { class: 'page-head' }, h('button', { class: 'icon-btn', 'aria-label': 'Back', html: ICON.back, onClick: () => (app.play('tap'), back()) }), h('h2', { text: title }), h('span'));
+  return h('header', { class: 'dd-page-head' }, h('button', { class: 'dd-icon', 'aria-label': 'Back', html: ICON.back, onClick: () => (app.play('tap'), back()) }), h('h2', { text: title }), h('span'));
 }
 
 function starRow(n: number): HTMLElement {
-  const el = h('span', { class: 'stars', 'aria-label': `${n} of 3 stars` });
+  const el = h('span', { class: 'dd-stars small', 'aria-label': `${n} of 3 stars` });
   for (let i = 0; i < 3; i++) el.append(h('span', { class: `star${i < n ? ' on' : ''}`, html: ICON.star }));
   return el;
+}
+
+/** The house's objective progress as 0..1 and a short label, read from its saved damage. */
+function houseProgress(store: GolfStore, hd: HouseDef): { share: number; label: string; down: number; world: World } {
+  const level = houseLevel(hd);
+  const world = new World(level.house, level.yard, 7);
+  const snap = store.loadHouse(hd.id);
+  if (snap) world.restore(snap);
+  const s = new Session(level, 7, { world });
+  const [a, b] = s.progress(hd.objective);
+  const share = Math.min(1, b > 0 ? a / b : 0);
+  const label = hd.objective.kind === 'destruction' || hd.objective.kind === 'wall' ? `${Math.min(a, b)}% of ${b}%` : hd.objective.kind === 'collapse' && hd.objective.what !== 'roof' && hd.objective.what !== 'floor' ? (a >= b ? 'Done' : 'Standing') : `${Math.min(a, b)} of ${b}`;
+  return { share, label, down: Math.floor(world.destruction() * 100), world };
 }
 
 // ------------------------------------------------------------------- title
 
 /**
- * Title: the house on its lot with a golfer taking real shots at it in the
- * background (the same simulation as the game), and the way in up front.
+ * Title: the player's house, as they left it, fills the screen. One big
+ * button goes straight back to it; the other modes sit quietly under it.
  */
 export function golfTitleScreen(app: App): ScreenInstance {
   const store = app.golf;
-  const next = store.nextLevel;
+  const hd = store.currentHouse;
+  const rec = store.houseRec(hd.id);
+  const prog = houseProgress(store, hd);
   const canvas = h('canvas', { class: 'title-canvas', 'aria-hidden': 'true' });
   const lowPower = (navigator.hardwareConcurrency ?? 8) <= 4;
-  const demoLevel: LevelDef = { ...SCORE_ATTACK, shots: Infinity, balls: { power: Infinity, heavy: Infinity, super: Infinity, blast: Infinity } };
-  let session = new Session(demoLevel);
-  const renderer = new GolfRenderer(canvas, session.world, { lowPower, reducedMotion: app.reducedMotion });
-  const rng = new Rng(Date.now() & 0xffff);
-  let wait = 1.4;
-  let shots = 0;
-  let aim = { yaw: 0, power: 0.85, ball: 'standard' as BallId };
+  const renderer = new GolfRenderer(canvas, prog.world, { lowPower, reducedMotion: app.reducedMotion });
+  const started = rec.shots > 0 || store.data.campaign.reached > 0;
 
-  const started = Object.keys(store.data.levels).length > 0;
-  const start = h(
+  const inv = SPECIALS.filter((b) => (store.data.economy.inventory[b] ?? 0) > 0);
+  const play = h(
     'button',
-    { class: 'btn primary xl', onClick: () => (app.play('select'), app.go('golf', { id: next.id })) },
-    h('span', { class: 'btn-label', text: started ? 'Continue' : 'Tee off' }),
-    h('span', { class: 'btn-sub', text: `${next.number} · ${next.title}` }),
+    { class: 'dd-play', onClick: () => (app.play('select'), app.go('golf', { id: hd.id })) },
+    h('span', { class: 'dd-play-label', text: started ? 'Play' : 'Start' }),
+    h('span', { class: 'dd-play-sub', text: rec.done ? 'Finished. Keep smashing' : prog.share > 0 ? `${Math.round(prog.share * 100)}% of the way` : 'Fresh house' }),
   );
-  const nav = (label: string, icon: string, go: () => void, locked = false): HTMLElement =>
-    h('button', { class: `nav-btn${locked ? ' locked' : ''}`, onClick: () => (app.play('tap'), go()) }, h('span', { class: 'icon', html: locked ? ICON.lock : icon }), h('span', { text: label }));
-  const scoreOpen = modeOpen(store, 'score');
-  const dailyOpen = modeOpen(store, 'daily');
+  const link = (label: string, go: () => void): HTMLElement => h('button', { class: 'dd-link', onClick: () => (app.play('tap'), go()) }, h('span', { text: label }));
   const el = h(
     'main',
-    { class: 'screen title golf-title' },
+    { class: 'screen dd dd-title' },
     canvas,
-    h('div', { class: 'title-shade' }),
-    h(
-      'header',
-      { class: 'title-head' },
-      h('h1', { class: 'wordmark' }, h('span', { text: 'DEMO' }), h('span', { class: 'day', text: 'DAY' })),
-      h('span', { class: 'title-stamp', text: 'Golf-powered demolition' }),
-      h('p', { class: 'tagline', text: 'One tee, one house, a bag of golf balls. Take it down a brick at a time.' }),
-    ),
+    h('header', { class: 'dd-title-head' }, h('h1', { class: 'dd-wordmark', 'aria-label': 'Demo Day' }, h('span', { text: 'DEMO' }), h('span', { class: 'day', text: 'DAY' })), h('button', { class: 'dd-icon', 'aria-label': 'Settings', html: ICON.settings, onClick: () => (app.play('tap'), app.go('golf-settings')) })),
     h(
       'section',
-      { class: 'title-panel' },
-      h('div', { class: 'title-stats' }, h('span', { class: 'chip' }, h('span', { class: 'icon', html: ICON.star }), h('b', { text: `${store.totalStars} / ${CAMPAIGN.length * 3}` })), h('span', { class: 'chip', text: `${CAMPAIGN.filter((l) => store.completed(l.id)).length} of ${CAMPAIGN.length} levels` })),
-      start,
+      { class: 'dd-title-panel' },
       h(
-        'nav',
-        { class: 'title-nav' },
-        nav('Levels', GICON.flag, () => app.go('levels')),
-        nav('Score Attack', GICON.bolt, () => (scoreOpen ? app.go('golf', { id: 'score' }) : app.toast(MODE_UNLOCK.score?.label ?? '')), !scoreOpen),
-        nav('Daily', GICON.calendar, () => (dailyOpen ? app.go('golf', { id: `daily-${todayKey()}` }) : app.toast(MODE_UNLOCK.daily?.label ?? '')), !dailyOpen),
-        nav('Settings', ICON.settings, () => app.go('golf-settings')),
+        'button',
+        { class: 'dd-house-line', 'aria-label': 'All houses', onClick: () => (app.play('tap'), app.go('houses')) },
+        h('span', { class: 'dd-kicker', text: `House ${hd.number} of ${HOUSES.length}` }),
+        h('b', { text: hd.name }),
+        h('span', { class: 'dd-house-obj' }, h('span', { text: objectiveText(hd.objective) }), h('span', { class: 'dd-house-count', text: rec.done ? 'Done' : prog.label })),
+        h('span', { class: 'dd-obj-bar' }, h('i', { class: 'dd-obj-fill', style: `transform:scaleX(${rec.done ? 1 : prog.share})` })),
       ),
+      inv.length ? h('div', { class: 'dd-inv', 'aria-label': 'Special balls' }, ...inv.map((b) => h('span', { class: 'dd-inv-ball', title: BALLS[b].name }, h('span', { class: 'dd-swatch', html: ballSwatch(b, 22) }), h('b', { text: String(store.data.economy.inventory[b]) }))), h('span', { class: 'dd-inv-meter', 'aria-label': `Reward meter ${Math.round(store.data.economy.meter)} of ${REWARD.meterSize}` }, h('i', { style: `transform:scaleX(${store.data.economy.meter / REWARD.meterSize})` }))) : null,
+      play,
+      h('nav', { class: 'dd-modes' }, link('Daily Demo', () => app.go('golf', { id: `daily-${todayKey()}` })), link('Sandbox', () => app.go('golf', { id: 'sandbox' })), link('Challenges', () => app.go('challenges'))),
     ),
   );
 
   let raf = 0;
   let last = performance.now();
-  let acc = 0;
   const frame = (now: number): void => {
     raf = requestAnimationFrame(frame);
     const dt = Math.max(0, Math.min(0.05, (now - last) / 1000));
@@ -95,42 +94,7 @@ export function golfTitleScreen(app: App): ScreenInstance {
       renderer.resize(w, hh);
       renderer.snapCamera();
     }
-    acc += dt;
-    let steps = 0;
-    while (acc >= DT && steps < 4) {
-      session.step();
-      acc -= DT;
-      steps++;
-    }
-    if (steps >= 4) acc = 0;
-    renderer.ingest(session.takeEvents());
-    if (session.phase === 'aim') {
-      wait -= dt;
-      if (wait <= 0) {
-        if (shots >= 7 || session.world.destruction() > 0.3) {
-          session = new Session(demoLevel);
-          renderer.load(session.world);
-          shots = 0;
-          wait = 1.5;
-        } else {
-          // Pick something worth hitting: a window, a seam low on the wall, the porch, the chimney.
-          const P = session.world.parts.filter((p) => p.state === PartState.Intact && (p.kind === 'glass' || p.kind === 'brick' || p.kind === 'column') && (p.wall === 'front' || p.kind === 'column' || p.tags.includes('chimney')) && p.y < 6);
-          const p = P[Math.floor(rng.next() * P.length)];
-          const balls: BallId[] = ['standard', 'standard', 'power', 'heavy', 'super', 'blast'];
-          const ball = balls[Math.floor(rng.next() * balls.length)] as BallId;
-          if (p) {
-            const shot = solveAim(session.world, ball, { x: p.x, y: p.y, z: p.z + p.hz }, 0.75 + rng.next() * 0.25);
-            if (shot) {
-              aim = { yaw: shot.yaw, power: shot.power, ball };
-              session.fire(shot);
-              shots++;
-            }
-          }
-          wait = 1.2;
-        }
-      }
-    }
-    const view: ViewState = { phase: session.phase === 'done' ? 'aim' : session.phase, ball: aim.ball, yaw: aim.yaw, pitch: 10, power: aim.power, prediction: null, guideFull: false, guideShare: 0, golfers: 1, peek: false, zoom: false, pins: [] };
+    const view: ViewState = { phase: 'intro', ball: 'standard', yaw: Math.sin(now / 2400) * 4, pitch: 10, power: 0.1, prediction: null, guideFull: false, guideShare: 0, golfers: 1, peek: false, zoom: false, pins: [] };
     renderer.update(dt, view);
     renderer.render();
   };
@@ -138,9 +102,35 @@ export function golfTitleScreen(app: App): ScreenInstance {
   return { el, destroy: () => (cancelAnimationFrame(raf), renderer.dispose()) };
 }
 
-// ------------------------------------------------------------------ levels
+// ------------------------------------------------------------------ houses
 
-export function golfLevelsScreen(app: App): ScreenInstance {
+export function golfHousesScreen(app: App): ScreenInstance {
+  const store = app.golf;
+  const row = (hd: HouseDef, i: number): HTMLElement => {
+    const open = store.houseOpen(hd.id);
+    const rec = store.data.campaign.houses[hd.id];
+    const current = store.data.campaign.current === hd.id;
+    const prog = open && rec?.shots ? houseProgress(store, hd) : null;
+    const status = !open ? 'Locked' : rec?.done ? `Done in ${rec.doneIn} shot${rec.doneIn === 1 ? '' : 's'}` : prog ? `${prog.down}% down · ${rec?.shots ?? 0} shots` : 'Not started';
+    return h(
+      'li',
+      {},
+      h(
+        'button',
+        { class: `dd-row${open ? '' : ' locked'}${current ? ' current' : ''}${rec?.done ? ' done' : ''}`, disabled: !open, 'aria-label': `House ${hd.number}, ${hd.name}, ${status}`, onClick: () => (app.play('select'), app.go('golf', { id: hd.id })) },
+        h('span', { class: 'dd-row-no', text: hd.number }),
+        h('span', { class: 'dd-row-main' }, h('b', { text: hd.name }), h('small', { text: open ? objectiveText(hd.objective) : i > 0 ? `Finish ${(HOUSES[i - 1] as HouseDef).name} to open` : '' }), h('small', { class: 'dd-row-status', text: status })),
+        h('span', { class: 'dd-row-side' }, hd.unlocks && open ? h('span', { class: 'dd-swatch', title: `Brings the ${BALLS[hd.unlocks].name}`, html: ballSwatch(hd.unlocks, 22) }) : null, rec?.done ? h('span', { class: 'dd-tick', html: ICON.check }) : !open ? h('span', { class: 'icon', html: ICON.lock }) : null),
+      ),
+    );
+  };
+  const el = h('main', { class: 'screen dd dd-page' }, pageHead(app, 'The Street'), h('p', { class: 'dd-page-lede', text: 'Each house has a weak spot. Damage stays until you come back.' }), h('ol', { class: 'dd-rows' }, ...HOUSES.map(row)));
+  return { el };
+}
+
+// -------------------------------------------------------------- challenges
+
+export function golfChallengesScreen(app: App): ScreenInstance {
   const store = app.golf;
   const card = (l: LevelDef, i: number): HTMLElement => {
     const open = store.isOpen(l);
@@ -152,55 +142,45 @@ export function golfLevelsScreen(app: App): ScreenInstance {
       {},
       h(
         'button',
-        { class: `level-card${open ? '' : ' locked'}`, disabled: !open, 'aria-label': `${l.number} ${l.title}${open ? '' : ', locked'}`, onClick: () => (app.play('select'), app.go('golf', { id: l.id })) },
-        h('span', { class: 'job-no', text: l.number }),
-        h(
-          'span',
-          { class: 'level-main' },
-          h('b', { text: l.title }),
-          h('small', { text: l.objectives.map(objectiveText).join(' · ') || l.blurb }),
-          h('small', { class: 'muted', text: rec?.completions ? `Best: ${rec.bestShots} shot${rec.bestShots === 1 ? '' : 's'} · ${rec.bestScore.toLocaleString('en-US')} pts` : open ? `Par ${l.par}` : `Finish level ${prev?.number ?? ''} to open` }),
-        ),
-        h('span', { class: 'level-side' }, intro ? h('span', { class: 'g-swatch', title: `New: ${BALLS[intro].name}`, html: ballSwatch(intro, 20) }) : null, open ? starRow(rec?.bestStars ?? 0) : h('span', { class: 'icon', html: ICON.lock })),
+        { class: `dd-row${open ? '' : ' locked'}`, disabled: !open, 'aria-label': `${l.number} ${l.title}${open ? '' : ', locked'}`, onClick: () => (app.play('select'), app.go('golf', { id: l.id })) },
+        h('span', { class: 'dd-row-no', text: l.number }),
+        h('span', { class: 'dd-row-main' }, h('b', { text: l.title }), h('small', { text: l.objectives.map(objectiveText).join(' · ') || l.blurb }), h('small', { class: 'dd-row-status', text: rec?.completions ? `Best ${rec.bestShots} shot${rec.bestShots === 1 ? '' : 's'} · par ${l.par}` : open ? `${l.shots} shots · par ${l.par}` : `Finish ${prev?.title ?? ''} to open` })),
+        h('span', { class: 'dd-row-side' }, intro ? h('span', { class: 'dd-swatch', html: ballSwatch(intro, 20) }) : null, open ? starRow(rec?.bestStars ?? 0) : h('span', { class: 'icon', html: ICON.lock })),
       ),
     );
   };
-  const mode = (title: string, icon: string, sub: string, key: string, go: () => void, best = ''): HTMLElement => {
+  const mode = (l: LevelDef, key: string, best: string): HTMLElement => {
     const open = modeOpen(store, key);
     return h(
       'li',
       {},
       h(
         'button',
-        { class: `level-card mode${open ? '' : ' locked'}`, onClick: () => (open ? (app.play('select'), go()) : app.toast(MODE_UNLOCK[key]?.label ?? '')) },
-        h('span', { class: 'icon mode-icon', html: open ? icon : ICON.lock }),
-        h('span', { class: 'level-main' }, h('b', { text: title }), h('small', { text: open ? sub : (MODE_UNLOCK[key]?.label ?? '') }), best ? h('small', { class: 'muted', text: best }) : null),
+        { class: `dd-row${open ? '' : ' locked'}`, onClick: () => (open ? (app.play('select'), app.go('golf', { id: l.id })) : app.toast(MODE_UNLOCK[key]?.label ?? '')) },
+        h('span', { class: 'dd-row-no', text: l.number }),
+        h('span', { class: 'dd-row-main' }, h('b', { text: l.title }), h('small', { text: open ? l.blurb : (MODE_UNLOCK[key]?.label ?? '') }), best ? h('small', { class: 'dd-row-status', text: best }) : null),
+        h('span', { class: 'dd-row-side' }, open ? null : h('span', { class: 'icon', html: ICON.lock })),
       ),
     );
   };
-  const daily = dailyLevel(todayKey());
-  const dRec = store.peek(daily);
-  const saRec = store.peek(SCORE_ATTACK);
+  const sa = store.peek(SCORE_ATTACK);
   const el = h(
     'main',
-    { class: 'screen page golf-levels' },
-    pageHead(app, 'Levels'),
-    h('p', { class: 'page-lede', text: 'Each level teaches one trick. Three stars for finishing at or under par.' }),
-    h('ol', { class: 'level-list' }, ...CAMPAIGN.map(card)),
-    h('h3', { class: 'section-title', text: 'More ways to play' }),
-    h(
-      'ul',
-      { class: 'level-list' },
-      mode('Score Attack', GICON.bolt, SCORE_ATTACK.blurb, 'score', () => app.go('golf', { id: 'score' }), saRec?.bestScore ? `Best ${saRec.bestScore.toLocaleString('en-US')}` : ''),
-      mode('Daily Challenge', GICON.calendar, `${todayKey()}: ${objectiveText(daily.objectives[0] as never)}. Same layout all day.`, 'daily', () => app.go('golf', { id: daily.id }), dRec?.completions ? `Done today in ${dRec.bestShots} shots` : ''),
-      ...PRECISION.map((p) => mode(p.title, GICON.target, p.blurb, 'precision', () => app.go('golf', { id: p.id }), store.peek(p)?.completions ? `Best ${store.peek(p)?.bestShots} shots (par ${p.par})` : `Par ${p.par}`)),
-      mode('Sandbox', GICON.sandbox, SANDBOX.blurb, 'sandbox', () => app.go('golf', { id: 'sandbox' })),
-    ),
-    h('h3', { class: 'section-title', text: 'The original Demo Day' }),
-    h('ul', { class: 'level-list' }, h('li', {}, h('button', { class: 'level-card mode', onClick: () => app.go('classic') }, h('span', { class: 'icon mode-icon', html: GICON.crane }), h('span', { class: 'level-main' }, h('b', { text: 'Crew Contracts' }), h('small', { text: 'The machine-and-moves demolition game: crane, charges, excavator, dozer, loader. Your saved contracts are kept.' }))))),
+    { class: 'screen dd dd-page' },
+    pageHead(app, 'Challenges'),
+    h('p', { class: 'dd-page-lede', text: 'Set puzzles with a shot limit. Three stars at or under par. Nothing here changes your houses.' }),
+    h('h3', { class: 'dd-section', text: 'Trick shots' }),
+    h('ol', { class: 'dd-rows' }, ...CAMPAIGN.map(card)),
+    h('h3', { class: 'dd-section', text: 'Precision' }),
+    h('ul', { class: 'dd-rows' }, ...PRECISION.map((p) => mode(p, 'precision', store.peek(p)?.completions ? `Best ${store.peek(p)?.bestShots} shots, par ${p.par}` : `Par ${p.par}`))),
+    h('h3', { class: 'dd-section', text: 'Score Attack' }),
+    h('ul', { class: 'dd-rows' }, mode(SCORE_ATTACK, 'score', sa?.bestScore ? `Best ${sa.bestScore.toLocaleString('en-US')}` : 'Bronze, silver and gold')),
   );
   return { el };
 }
+
+/** Kept for old links: the levels page is now Challenges. */
+export const golfLevelsScreen = golfChallengesScreen;
 
 // ---------------------------------------------------------------- settings
 
@@ -225,35 +205,67 @@ export function golfSettingsScreen(app: App): ScreenInstance {
   };
   const el = h(
     'main',
-    { class: 'screen page settings' },
+    { class: 'screen dd dd-page' },
     pageHead(app, 'Settings'),
     h(
       'section',
-      { class: 'card' },
-      toggle('Sound', 'Swings, bricks, glass and collapses. Every hit is also shown on screen.', 'sound'),
-      toggle('Vibration', 'Short buzzes on seam shots and collapses, where the device supports it.', 'haptics'),
-      toggle('Reduce motion', 'No camera shake and no slow motion on big collapses.', 'reducedMotion'),
+      { class: 'dd-panel' },
+      toggle('Sound', 'Bricks, glass, snapping supports and collapses. Every hit is also shown on screen.', 'sound'),
+      toggle('Vibration', 'Short buzzes on seam shots, supports and collapses, where the device supports it.', 'haptics'),
+      toggle('Reduce motion', 'No camera shake, no slow motion and no pulsing weak points.', 'reducedMotion'),
     ),
     h(
       'section',
-      { class: 'card' },
-      h('h3', { text: 'Controls' }),
-      h('p', { class: 'muted small', text: 'Drag on the lawn to aim: sideways turns, up and down sets the loft. The bar on the right sets power. Zoom halves the aim speed for fine shots.' }),
-      h('p', { class: 'muted small', text: 'Keyboard: arrows aim (Shift for fine), W and S for power, Space to fire, 1 to 6 picks a ball, Z zooms, X looks inside, R restarts.' }),
+      { class: 'dd-panel' },
+      h('h3', { text: 'How to shoot' }),
+      h('p', { text: 'Press anywhere and pull back. The further you pull, the harder and higher the shot. Pull to the side to turn; move slowly for fine turns. Let go to shoot, or let go before the ring starts to fill to cancel.' }),
+      h('p', { text: 'Keyboard: left and right turn (Shift for fine), up and down set power, Space shoots, 1 to 6 pick a ball, X looks inside, Escape pauses.' }),
     ),
     h(
       'section',
-      { class: 'card' },
-      h('div', { class: 'setting-row' }, h('div', {}, h('b', { text: 'Reset golf progress' }), h('small', { text: 'Clears golf levels, stars and records on this device. Crew Contracts progress is separate and is not touched.' })), h('button', { class: 'btn danger sm', text: 'Reset', onClick: () => {
-        const s = sheet(h('div', { class: 'sheet-body' }, h('h2', { text: 'Reset golf progress?' }), h('p', { text: 'Every golf level, star and record on this device goes. This cannot be undone.' }), h('div', { class: 'sheet-actions' }, h('button', { class: 'btn ghost', text: 'Keep my progress', onClick: () => s.close() }), h('button', { class: 'btn danger', text: 'Reset golf progress', onClick: () => {
-          s.close();
-          app.golf.reset();
-          app.toast('Golf progress reset.');
-          app.go('title');
-        } }))));
-      } })),
+      { class: 'dd-panel' },
+      h('h3', { text: 'More' }),
+      h('button', { class: 'dd-row', onClick: () => (app.play('tap'), app.go('classic')) }, h('span', { class: 'dd-row-no', html: GICON.crane }), h('span', { class: 'dd-row-main' }, h('b', { text: 'Crew Contracts' }), h('small', { text: 'The original machine-and-moves Demo Day. Its save is separate and untouched.' }))),
     ),
-    h('p', { class: 'muted small center', text: 'Progress is saved on this device. Add DEMO DAY to your Home Screen for full screen play.' }),
+    h(
+      'section',
+      { class: 'dd-panel' },
+      h(
+        'div',
+        { class: 'setting-row' },
+        h('div', {}, h('b', { text: 'Reset progress' }), h('small', { text: 'Clears houses, specials, challenges and daily scores on this device. Crew Contracts is not touched.' })),
+        h('button', {
+          class: 'btn danger sm',
+          text: 'Reset',
+          onClick: () => {
+            const s = sheet(
+              h(
+                'div',
+                { class: 'sheet-body dd dd-sheet' },
+                h('h2', { text: 'Reset everything?' }),
+                h('p', { class: 'dd-lede', text: 'Every house goes back up, and your specials, stars and scores go. This cannot be undone.' }),
+                h(
+                  'div',
+                  { class: 'sheet-actions stack' },
+                  h('button', { class: 'btn ghost', text: 'Keep my progress', onClick: () => s.close() }),
+                  h('button', {
+                    class: 'btn danger',
+                    text: 'Reset progress',
+                    onClick: () => {
+                      s.close();
+                      app.golf.reset();
+                      app.toast('Progress reset.');
+                      app.go('title');
+                    },
+                  }),
+                ),
+              ),
+            );
+          },
+        }),
+      ),
+    ),
+    h('p', { class: 'dd-foot', text: 'Progress is saved on this device. Add DEMO DAY to your Home Screen for full screen play.' }),
   );
   return { el };
 }

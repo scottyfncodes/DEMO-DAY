@@ -1,7 +1,7 @@
 {
   "name": "DEMO DAY",
   "short_name": "DEMO DAY",
-  "description": "Golf-powered house demolition. Knock out bricks, hit the seams, ricochet through the rooms and bring the roof down.",
+  "description": "A demolition puzzle. Pull back, let go, and find the weak spot that brings the house down.",
   "id": "demo-day",
   "start_url": "./",
   "scope": "./",

@@ -1,7 +1,8 @@
+import { evaluateShot, type ShotQuality, type ShotTag } from '../game/quality';
 import type { BallId } from './balls';
 import type { LevelDef, Objective, PowerUpId } from './levels';
 import { PartState, type Part } from './parts';
-import { DT, NO_MODS, World, type Shot, type ShotMods, type SimEvent } from './world';
+import { DT, NO_MODS, World, type Ball, type Shot, type ShotMods, type SimEvent } from './world';
 
 /**
  * One attempt at a level: the shot budget, ammunition, power-ups, scoring
@@ -25,6 +26,10 @@ export const SCORING = {
   streakMax: 2.5,
   /** Campaign: per shot left at the finish. */
   shotLeft: 250,
+  /** Skill bonus per shot-quality tag. */
+  tags: { clean: 20, aim: 60, window: 100, multi: 80, seam: 0, bank: 150, chain: 200, support: 250, house: 500 } as Record<ShotTag, number>,
+  /** With fast resolve, a shot hands back control this long after the last ball stops, if nothing is about to give way. */
+  quickQuiet: 0.9,
 };
 
 export function streakMultiplier(streak: number): number {
@@ -49,6 +54,18 @@ export interface ShotReport {
   through: boolean;
   /** Headline lines for the shot card, most impressive first. */
   lines: string[];
+  quality: ShotQuality;
+  /** Share of the house (0..1) brought down by this shot. */
+  share: number;
+}
+
+export interface SessionOptions {
+  /** A world to play on instead of a freshly built one (a restored house). */
+  world?: World;
+  /** Special ball stock to draw from and spend, shared with the caller (the campaign inventory). */
+  ammo?: Partial<Record<BallId, number>>;
+  /** Hand control back once the balls stop, while the last debris settles. */
+  fastResolve?: boolean;
 }
 
 export type Phase = 'aim' | 'flight' | 'done';
@@ -89,13 +106,24 @@ export class Session {
   result: Result | null = null;
   /** Called with each finished shot. */
   onShot?: (r: ShotReport) => void;
+  /** House mode: called once, on the shot that meets the objectives. */
+  onComplete?: () => void;
+  /** House mode: the objectives have been met (play carries on). */
+  completed = false;
+  /** Parts the player is pointed at (pins, weak points), for shot quality. */
+  focus = new Set<number>();
+  private shotBalls: Ball[] = [];
+  private destrBefore = 0;
+  private fastResolve: boolean;
 
-  constructor(level: LevelDef, seed = 7) {
+  constructor(level: LevelDef, seed = 7, opts: SessionOptions = {}) {
     this.level = level;
-    this.world = new World(level.house, level.yard, seed);
+    this.world = opts.world ?? new World(level.house, level.yard, seed);
     if (level.wind) this.world.wind = { ...level.wind };
-    this.ammo = { ...level.balls };
+    this.ammo = opts.ammo ?? { ...level.balls };
     this.powerups = { ...level.powerups };
+    this.fastResolve = !!opts.fastResolve;
+    if (level.mode === 'house') this.completed = this.objectivesMet();
   }
 
   get shotsLeft(): number {
@@ -152,9 +180,16 @@ export class Session {
     this.flightTime = 0;
     this.quietTime = 0;
     this.shotPoints = 0;
-    this.world.launch(shot, mods);
+    this.destrBefore = this.world.destruction();
+    this.shotBalls = this.world.launch(shot, mods);
     this.phase = 'flight';
     return true;
+  }
+
+  /** Quality of the shot in flight so far (for live callouts), or null when aiming. */
+  liveQuality(): ShotQuality | null {
+    if (this.phase !== 'flight') return null;
+    return evaluateShot(this.shotEvents, { parts: this.world.parts, balls: this.shotBalls, focus: this.focus, destructionBefore: this.destrBefore, destructionAfter: this.world.destruction() });
   }
 
   /** Advances one fixed step. */
@@ -163,13 +198,19 @@ export class Session {
     w.step(DT);
     const ev = w.drainEvents();
     this.events.push(...ev);
+    if (this.phase === 'aim') {
+      // Debris still settling after a fast hand-back: its damage still scores.
+      for (const e of ev) if (e.t === 'break' || e.t === 'release') this.score += this.award(this.world.parts[e.part] as Part);
+    }
     if (this.phase === 'flight') {
       for (const e of ev) this.ingest(e);
       this.shotEvents.push(...ev);
       this.flightTime += DT;
       if (w.activeBalls === 0) this.quietTime += DT;
+      const quick = this.fastResolve && w.activeBalls === 0 && w.pending.size === 0 && this.quietTime > SCORING.quickQuiet;
       // A shot ends when everything is still; stragglers are put to rest so nobody waits.
-      if (w.settled || this.quietTime > 3.5 || this.flightTime > 16) {
+      if (quick) this.endShot();
+      else if (w.settled || this.quietTime > 3.5 || this.flightTime > 16) {
         if (!w.settled) {
           w.forceSettle();
           for (const e of w.drainEvents()) {
@@ -232,7 +273,8 @@ export class Session {
     let chainBonus = 0;
     for (const b of this.world.balls) if (mine.has(b.id) && b.touched.size >= SCORING.chainFrom) chainBonus += (b.touched.size - SCORING.chainFrom + 1) * SCORING.chainPer;
     this.maxChain = Math.max(this.maxChain, chain);
-    const base = this.shotPoints + chainBonus;
+    const quality = evaluateShot(ev, { parts: P, balls: this.shotBalls, focus: this.focus, destructionBefore: this.destrBefore, destructionAfter: this.world.destruction() });
+    const base = this.shotPoints + chainBonus + quality.tags.reduce((s, t) => s + SCORING.tags[t], 0);
     if (base >= SCORING.streakMin) this.streak++;
     else this.streak = 0;
     this.bestStreak = Math.max(this.bestStreak, this.streak);
@@ -266,10 +308,20 @@ export class Session {
     if (glass) lines.push(glass === 1 ? '1 pane of glass' : `${glass} panes of glass`);
     if (decor) lines.push(decor === 1 ? '1 garden piece' : `${decor} garden pieces`);
     if (!lines.length) lines.push(entered ? 'Inside, but nothing broke' : 'No damage');
-    const report: ShotReport = { number: this.shotsUsed, ball: this.shotBall, points, base, multiplier: mult, streak: this.streak, bricks, glass, seams, chain, collapsed, decor, interior, entered, through, lines };
+    const share = Math.max(0, this.world.destruction() - this.destrBefore);
+    const report: ShotReport = { number: this.shotsUsed, ball: this.shotBall, points, base, multiplier: mult, streak: this.streak, bricks, glass, seams, chain, collapsed, decor, interior, entered, through, lines, quality, share };
     this.reports.push(report);
     this.phase = 'aim';
     const done = this.objectivesMet();
+    if (this.level.mode === 'house') {
+      // Houses never end: meeting the objective opens the next one, and play carries on.
+      this.onShot?.(report);
+      if (done && !this.completed) {
+        this.completed = true;
+        this.onComplete?.();
+      }
+      return;
+    }
     if ((done && this.level.mode !== 'sandbox' && this.level.mode !== 'score') || this.shotsLeft <= 0) this.finish(done);
     this.onShot?.(report);
   }
@@ -311,6 +363,10 @@ export class Session {
       }
       case 'destruction':
         return [Math.floor(this.world.destruction() * 100), o.pct];
+      case 'wall': {
+        const mine = (p: Part): boolean => p.wall === o.wall && (p.kind === 'brick' || p.kind === 'lintel') && !p.tags.includes('gable');
+        return [Math.floor((n(mine) / Math.max(1, all(mine))) * 100), o.pct];
+      }
       case 'decor':
         return [n((p) => p.kind === 'decor'), o.n];
       case 'score':
@@ -333,7 +389,7 @@ export class Session {
     const L = this.level;
     let stars = 0;
     let medal = 0;
-    if (L.mode === 'score') {
+    if (L.mode === 'score' || (L.mode === 'daily' && !L.objectives.length)) {
       complete = true;
       const m = L.medals ?? [Infinity, Infinity, Infinity];
       medal = this.score >= m[2] ? 3 : this.score >= m[1] ? 2 : this.score >= m[0] ? 1 : 0;
