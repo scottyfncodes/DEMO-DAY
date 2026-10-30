@@ -9,8 +9,8 @@ import { World } from '../src/golf/sim/world';
 
 /**
  * Every campaign house is played to its destruction goal by a simple bot
- * that aims with the real controls (a target point and a pull) and spends
- * only special balls it found hidden in the bricks. A goal in the game is
+ * that aims with the real controls (a target point and a pull), sets off the
+ * gas bottles first, and spends only special balls it found in the bricks. A goal in the game is
  * never a guess.
  */
 
@@ -21,6 +21,9 @@ function pickTarget(s: Session, k: number): Part | undefined {
   const P = s.world.parts;
   const frontBricks = P.filter((p) => intact(p) && p.wall === 'front' && (p.kind === 'brick' || p.kind === 'lintel'));
   const byLow = (a: Part, b: Part): number => a.y - b.y || Math.abs(a.x + 0.6) - Math.abs(b.x + 0.6);
+  // Chains first: a gas bottle still standing, nearest the ground and the front.
+  const bottle = P.filter((p) => intact(p) && p.tags.includes('tank')).sort((a, b) => a.y - b.y || b.z - a.z)[0];
+  if (bottle && k % 2 === 0) return bottle;
   const weak = s.world.weakPoints(1)[0];
   if (weak && k % 3 === 0) return P[weak.part];
   if (k % 3 === 1) {
@@ -68,7 +71,11 @@ describe('the campaign', () => {
     for (const h of HOUSES) {
       const w = new World(h.spec, h.yard);
       w.solve(true);
-      expect(w.drainEvents().filter((e) => e.t === 'release'), h.id).toHaveLength(0);
+      expect(w.drainEvents().filter((e) => e.t === 'release' || e.t === 'creak'), h.id).toHaveLength(0);
+      expect(w.pending.size, `${h.id} has overloaded parts`).toBe(0);
+      // Left alone for a while, nothing gives way.
+      for (let i = 0; i < 240; i++) w.step();
+      expect(w.drainEvents().filter((e) => e.t === 'break' || e.t === 'release'), `${h.id} falls down on its own`).toHaveLength(0);
       expect(new Session(houseLevel(h)).completed, h.id).toBe(false);
       expect(w.parts.length, `${h.id} is not bigger than the one before`).toBeGreaterThanOrEqual(last);
       last = w.parts.length;

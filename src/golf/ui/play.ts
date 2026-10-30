@@ -29,6 +29,8 @@ type Kind = 'house' | 'daily' | 'sandbox' | 'challenge';
 const POWERUP_ORDER: PowerUpId[] = ['drive', 'ricochet', 'precision', 'golfers'];
 /** Most sounds started in one frame: a collapse should rumble, not machine-gun. */
 const SOUND_BUDGET = 7;
+/** A chain this size gets the counter and a line under the headline. */
+const CHAIN_SHOW = 5;
 
 function levelFor(id: string): LevelDef {
   if (id === 'sandbox') {
@@ -131,6 +133,9 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   const bottom = h('div', { class: 'dd-bottom' }, caption, finds, scoreEl, h('div', { class: 'dd-tray-row' }, tray, puRow), fireBtn);
 
   const headline = h('div', { class: 'dd-headline', 'aria-live': 'polite' });
+  // The chain counter: climbs while a collapse spreads, one piece at a time.
+  const chainNum = h('b');
+  const chainEl = h('div', { class: 'dd-chain', 'aria-hidden': 'true' }, h('span', { text: 'Chain' }), chainNum);
   const banner = h('div', { class: 'dd-banner', role: 'status' });
   const coach = h('div', { class: 'dd-coach hidden', 'aria-hidden': 'true' }, h('span', { class: 'dd-coach-hand' }), h('b', { text: 'Touch a spot, pull back, let go' }));
 
@@ -155,7 +160,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   svg.append(band, ringBack, ring, knob, label);
   const RING_LEN = 2 * Math.PI * 30;
 
-  const el = h('main', { class: `screen golf-play dd dd-${kind}` }, canvas, svg, headline, banner, coach, top, bottom);
+  const el = h('main', { class: `screen golf-play dd dd-${kind}` }, canvas, svg, chainEl, headline, banner, coach, top, bottom);
 
   // ------------------------------------------------------------ the tray
 
@@ -579,7 +584,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
           if (e.speed > 5) play('impact', Math.min(0.8, e.speed / 14));
           break;
         case 'blast':
-          play('detonate', 0.8, 'small');
+          play('detonate', e.ball ? 0.8 : 1, e.ball ? 'small' : 'heavy');
           app.buzz(30);
           break;
         case 'exit':
@@ -594,7 +599,14 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   const onShot = (r: ShotReport): void => {
     const q = r.quality;
     if (q.headline) showHeadline(q.headline, '');
+    if (q.chain >= CHAIN_SHOW) {
+      const best = !!houseRec && q.chain > houseRec.bestChain && houseRec.bestChain > 0;
+      showHeadline(q.headline ?? 'chain', `${q.chain}-piece chain${best ? ', a new best' : ''}`);
+      if (best) window.setTimeout(() => app.play('newBest'), 400);
+    }
+    window.setTimeout(() => chainEl.classList.remove('show'), 1600);
     if (kind === 'house' && houseRec && houseDef) {
+      houseRec.bestChain = Math.max(houseRec.bestChain, q.chain);
       houseRec.bestPct = Math.max(houseRec.bestPct, Math.floor(session.world.destruction() * 100));
       store.save();
       snapDirty = true;
@@ -635,6 +647,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
       h('p', { class: 'dd-kicker', text: `House ${houseDef.number} · goal reached` }),
       h('h2', { text: houseDef.name }),
       h('p', { class: 'dd-lede', text: `${houseDef.goal}% down in ${houseRec.doneIn} shot${houseRec.doneIn === 1 ? '' : 's'}.${best}` }),
+      houseRec.bestChain >= CHAIN_SHOW ? h('p', { class: 'dd-note', text: `Biggest chain here: ${houseRec.bestChain} pieces from one shot.` }) : null,
       next ? h('p', { class: 'dd-note', text: `Next up: ${next.name}, a bigger house. Fewer shots is better: rebuild any house from the pause menu to beat your count.` }) : h('p', { class: 'dd-note', text: 'That was the biggest house on the street. Rebuild any of them from the pause menu and beat your shot count.' }),
     );
     const actions = h('div', { class: 'sheet-actions stack' });
@@ -838,6 +851,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   let last = performance.now();
   let acc = 0;
   let liveTier: Tier = 0;
+  let chainShown = 0;
   const frame = (now: number): void => {
     raf = requestAnimationFrame(frame);
     const realDt = Math.max(0, Math.min(0.05, (now - last) / 1000));
@@ -867,6 +881,17 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
       sounds(events);
       if (hidden.size) for (const e of events) if ((e.t === 'break' || e.t === 'release') && hidden.has(e.part)) reveal(e.part);
       const q = session.liveQuality();
+      if (q && q.chain >= CHAIN_SHOW && q.chain !== chainShown) {
+        // Each new piece in the chain ticks, climbing in pitch as it grows.
+        if (q.chain > chainShown) app.play('countTick', Math.min(1, q.chain / 150));
+        chainShown = q.chain;
+        chainNum.textContent = String(q.chain);
+        chainEl.classList.add('show');
+        chainEl.classList.toggle('big', q.chain >= 40);
+        chainEl.classList.remove('tick');
+        void chainEl.offsetWidth;
+        chainEl.classList.add('tick');
+      }
       if (q) {
         if (q.headline) showHeadline(q.headline);
         if (q.tier > liveTier) reactTo(q.tier, q.headline);
@@ -874,10 +899,15 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
       }
       if (events.some((e) => e.t === 'break' || e.t === 'release' || e.t === 'knock')) renderCard();
     }
-    if (session.phase !== 'flight') liveTier = 0;
+    if (session.phase !== 'flight') {
+      liveTier = 0;
+      chainShown = 0;
+    }
     const aiming = session.phase === 'aim';
     if (aiming && weakDirty && session.world.pending.size === 0) {
-      weak = kind === 'challenge' ? [] : session.world.weakPoints(3).map((x) => x.part);
+      // Weak points, and the gas bottles still waiting to go off.
+      const bottles = session.world.parts.filter((p) => p.volatile && p.state === PartState.Intact).map((p) => p.id);
+      weak = kind === 'challenge' ? [] : [...session.world.weakPoints(3).map((x) => x.part), ...bottles.slice(0, 6)];
       pins = pinsFor(session);
       weakDirty = false;
     }
@@ -914,7 +944,7 @@ export function golfPlayScreen(app: App, params: Record<string, string>): Screen
   renderAll();
   if (kind === 'challenge') openIntro();
   if (houseDef) {
-    hint.textContent = session.completed ? 'Goal reached. Keep smashing, or pick the next house from the menu.' : `${houseDef.hint} ${hidden.size} special balls are hidden in its bricks.`;
+    hint.textContent = session.completed ? 'Goal reached. Keep smashing, or pick the next house from the menu.' : `${houseDef.hint} Red gas bottles set each other off, and ${hidden.size} special balls hide in its bricks.`;
     renderFinds();
   } else if (kind === 'daily') hint.textContent = level.blurb;
   else if (kind === 'sandbox') hint.textContent = 'Every special ball, unlimited. Pause to rebuild the house.';

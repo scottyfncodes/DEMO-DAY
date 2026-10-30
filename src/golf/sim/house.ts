@@ -58,6 +58,13 @@ export interface HouseSpec {
   furnish: boolean;
   /** Tee position across the lot (default 0, in line with the front door). */
   teeX?: number;
+  /**
+   * How hard falling pieces hit what they land on (default 1). Above 1, heavy
+   * pieces also send a shock into whatever they land on, so collapses spread.
+   */
+  cascade?: number;
+  /** Gas bottles: go off when hit or hit, and set each other off. y is the floor they stand on (default the ground). */
+  tanks?: Array<{ x: number; z: number; y?: number }>;
 }
 
 export type DecorModel = 'gnome' | 'flamingo' | 'mailbox' | 'birdbath' | 'pot' | 'light' | 'bench' | 'lawnchair';
@@ -91,6 +98,8 @@ export interface HouseInfo {
   paving: Array<{ minX: number; maxX: number; minZ: number; maxZ: number }>;
   bounds: Box;
   palette: Palette;
+  /** How hard falling pieces hit (see HouseSpec.cascade). */
+  cascade: number;
   trees: Array<{ x: number; z: number; s: number }>;
 }
 
@@ -103,6 +112,32 @@ export const PALETTES: Record<string, Palette> = {
 };
 
 export type Storeys = 1 | 2 | 3;
+
+/** Blast radius of a gas bottle, m. Bottles closer than this set each other off. */
+export const TANK_BLAST = 2.2;
+
+/**
+ * Where gas bottles go in a house of this size, in the order houses add them:
+ * outside the front corners (the load-bearing ends of the front wall), then
+ * inside behind them, then upstairs over them, so one going off reaches the next.
+ */
+export function tankSpots(W: number, storeys: Storeys, n: number): Array<{ x: number; z: number; y?: number }> {
+  const e = W / 2;
+  const floor1 = FOUNDATION_TOP + STOREY_H;
+  const floor2 = FOUNDATION_TOP + 2 * STOREY_H;
+  const spots: Array<{ x: number; z: number; y?: number } | null> = [
+    { x: -e + 0.5, z: 0.5 },
+    { x: -e + 1.3, z: -0.75, y: FOUNDATION_TOP },
+    { x: e - 0.5, z: 0.5 },
+    { x: e - 1.3, z: -0.75, y: FOUNDATION_TOP },
+    storeys >= 2 ? { x: -e + 1.3, z: -0.75, y: floor1 } : null,
+    storeys >= 2 ? { x: e - 1.3, z: -0.75, y: floor1 } : null,
+    { x: 0.9, z: -1.2, y: FOUNDATION_TOP },
+    storeys >= 3 ? { x: -e + 1.3, z: -0.75, y: floor2 } : null,
+    storeys >= 3 ? { x: e - 1.3, z: -0.75, y: floor2 } : null,
+  ];
+  return spots.filter((s): s is { x: number; z: number; y?: number } => !!s).slice(0, n);
+}
 const PITCH = 38 * (Math.PI / 180);
 const EPS = 0.004;
 
@@ -214,6 +249,7 @@ export const FURNITURE: Record<string, FurnitureDef> = {
   light: { w: 0.14, h: 0.55, d: 0.14, mat: 'metal', points: 20, knock: true, fragile: false, label: 'Garden light' },
   bench: { w: 1.5, h: 0.85, d: 0.55, mat: 'wood', points: 40, knock: true, fragile: false, label: 'Garden bench' },
   lawnchair: { w: 0.6, h: 0.9, d: 0.7, mat: 'plastic', points: 35, knock: true, fragile: false, label: 'Lawn chair' },
+  tank: { w: 0.36, h: 0.62, d: 0.36, mat: 'metal', points: 60, knock: false, fragile: true, label: 'Gas bottle', hp: 0.35 },
 };
 
 const CAPACITY: Partial<Record<PartKind, number>> = {
@@ -451,7 +487,8 @@ export function buildLevel(spec: HouseSpec, yard: YardSpec): { parts: Part[]; in
           const l0 = Math.max(m.a0, o.a0 - BRICK_L / 2);
           const l1 = Math.min(m.a1, o.a1 + BRICK_L / 2);
           blocked.push([l0, l1]);
-          const lin = mkWallPiece(wall, 'lintel', 'lintel', l0, l1, y0, y1, { color: palette.trim, tags: ['lintel', 'support'], label: 'Lintel' });
+          // A third storey loads the ground floor lintels by half again; they are made for it.
+          const lin = mkWallPiece(wall, 'lintel', 'lintel', l0, l1, y0, y1, { color: palette.trim, tags: ['lintel', 'support'], label: 'Lintel', ...(storeys === 3 ? { capacity: 180 } : {}) });
           b.autoSupport(lin, m.axis === 'x' ? 'ends-x' : 'ends-z');
           lintels.push(lin);
         }
@@ -819,6 +856,14 @@ export function buildLevel(spec: HouseSpec, yard: YardSpec): { parts: Part[]; in
     for (const dx of [-1.45, 1.45]) b.autoSupport(b.add({ kind: 'decor', mat: 'ceramic', x: doorX + dx, y: FOUNDATION_TOP + 0.225, z: 1.35, hx: 0.2, hy: 0.225, hz: 0.2, points: 30, knock: true, fragile: true, label: 'Plant pot', model: 'pot', house: false, tags: ['decor', 'pot'] }));
   }
 
+  // Gas bottles last, so every other part keeps the id it always had.
+  for (const t of spec.tanks ?? []) {
+    const f = FURNITURE.tank as FurnitureDef;
+    b.autoSupport(
+      b.add({ kind: 'furniture', mat: f.mat, x: t.x, y: (t.y ?? 0) + f.h / 2, z: t.z, hx: f.w / 2, hy: f.h / 2, hz: f.d / 2, hp: f.hp, points: f.points, knock: false, fragile: true, label: f.label, model: 'tank', house: false, volatile: TANK_BLAST, tags: ['tank', 'volatile'] }),
+    );
+  }
+
   b.link();
   void glassParts;
   void lintels;
@@ -841,6 +886,7 @@ export function buildLevel(spec: HouseSpec, yard: YardSpec): { parts: Part[]; in
     bounds: { minX: -16, maxX: 16, minY: -1, maxY: 40, minZ: -15, maxZ: tee.z + 8 },
     palette,
     trees: yard.trees,
+    cascade: spec.cascade ?? 1,
   };
   return { parts: b.parts, info };
 }

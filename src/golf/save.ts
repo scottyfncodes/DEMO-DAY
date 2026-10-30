@@ -34,6 +34,8 @@ export interface HouseRecord {
   bestPct: number;
   /** Bricks whose hidden ball has been found. They stay empty after a rebuild. */
   found: number[];
+  /** Biggest chain reaction set off by one shot. */
+  bestChain: number;
 }
 
 export interface CampaignSave {
@@ -69,7 +71,7 @@ export function defaultGolfSave(): GolfSave {
 }
 
 export function emptyHouseRecord(): HouseRecord {
-  return { shots: 0, done: false, doneIn: 0, bestIn: 0, bestPct: 0, found: [] };
+  return { shots: 0, done: false, doneIn: 0, bestIn: 0, bestPct: 0, found: [], bestChain: 0 };
 }
 
 export function emptyLevelRecord(): LevelRecord {
@@ -108,7 +110,7 @@ export function normalizeGolfSave(raw: unknown): GolfSave | null {
       if (!r || typeof r !== 'object') continue;
       const q = r as Record<string, unknown>;
       const found = Array.isArray(q.found) ? q.found.filter((x): x is number => Number.isInteger(x) && (x as number) >= 0).slice(0, 64) : [];
-      out.campaign.houses[h.id] = { shots: Math.floor(num(q.shots)), done: q.done === true, doneIn: Math.floor(num(q.doneIn)), bestIn: Math.floor(num(q.bestIn, num(q.doneIn))), bestPct: Math.min(100, Math.floor(num(q.bestPct))), found };
+      out.campaign.houses[h.id] = { shots: Math.floor(num(q.shots)), done: q.done === true, doneIn: Math.floor(num(q.doneIn)), bestIn: Math.floor(num(q.bestIn, num(q.doneIn))), bestPct: Math.min(100, Math.floor(num(q.bestPct))), found, bestChain: Math.floor(num(q.bestChain)) };
     }
     if (typeof camp.current === 'string' && HOUSES.some((h, i) => h.id === camp.current && i <= out.campaign.reached)) out.campaign.current = camp.current;
     else out.campaign.current = (HOUSES[out.campaign.reached] as HouseDef).id;
