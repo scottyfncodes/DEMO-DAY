@@ -206,6 +206,10 @@ export class World {
   wind = { x: 0, z: 0 };
   /** When each overloaded part will give way. */
   pending = new Map<number, number>();
+  /** Gas bottles that have been set off, and when they go. */
+  fuses = new Map<number, number>();
+  /** How hard falling pieces hit (from the house spec). */
+  readonly cascade: number;
   load: Float64Array;
   private grid = new Map<number, number[]>();
   private stamp: Uint32Array;
@@ -226,6 +230,7 @@ export class World {
     this.parts = parts;
     this.info = info;
     this.rng = new Rng(seed);
+    this.cascade = info.cascade;
     this.stamp = new Uint32Array(parts.length);
     this.load = new Float64Array(parts.length);
     this.heights = new Float32Array(HF_NX * HF_NZ);
@@ -334,7 +339,7 @@ export class World {
 
   /** Nothing is moving and nothing is about to give way. */
   get settled(): boolean {
-    return this.activeBalls === 0 && this.activeDebris === 0 && this.pending.size === 0 && !this.dirty;
+    return this.activeBalls === 0 && this.activeDebris === 0 && this.pending.size === 0 && this.fuses.size === 0 && !this.dirty;
   }
 
   // -------------------------------------------------------------- stepping
@@ -348,6 +353,12 @@ export class World {
         this.pending.delete(id);
         const p = this.parts[id] as Part;
         if (p.state === PartState.Intact) this.breakPart(p, 'overload', 0);
+      }
+    }
+    for (const [id, at] of this.fuses) {
+      if (this.time >= at) {
+        this.fuses.delete(id);
+        this.explode(id);
       }
     }
     if (this.dirty) this.solve(true);
@@ -372,6 +383,12 @@ export class World {
       if (p.state === PartState.Intact) this.breakPart(p, 'overload', 0);
     }
     this.pending.clear();
+    // Lit bottles go off now; one can light another, so keep going until none are left.
+    for (let guard = 0; this.fuses.size && guard < 50; guard++) {
+      const id = this.fuses.keys().next().value as number;
+      this.fuses.delete(id);
+      this.explode(id);
+    }
     if (this.dirty) this.solve(true);
     for (const d of this.debris) if (!d.asleep) this.sleep(d);
   }
@@ -687,6 +704,48 @@ export class World {
     this.dirty = true;
     this.events.push({ t: 'break', part: p.id, cause, ball, x, y, z });
     this.wake(p.id);
+    this.ignite(p);
+  }
+
+  /** A gas bottle that breaks goes off a beat later, so a run of them ripples. */
+  private ignite(p: Part): void {
+    if (!p.volatile || this.fuses.has(p.id)) return;
+    this.fuses.set(p.id, this.time + TANK_FUSE + this.rng.next() * 0.08);
+  }
+
+  /** A gas bottle goes off: everything near it takes blast damage, other bottles included. */
+  private explode(id: number): void {
+    const p = this.parts[id] as Part;
+    const d = this.debrisIndex.get(id);
+    const x = d ? d.x : p.x;
+    const y = d ? d.y : p.y;
+    const z = d ? d.z : p.z;
+    const R = p.volatile ?? 2;
+    this.events.push({ t: 'blast', ball: 0, x, y, z, r: R });
+    this.lastBlast = { x, y, z, t: this.time, r: R };
+    for (const q of this.query(x - R, y - R, z - R, x + R, y + R, z + R, [])) {
+      if (q.soft || q.id === id) continue;
+      const bx = partBox(q);
+      const dist = Math.hypot(Math.max(bx.minX - x, 0, x - bx.maxX), Math.max(bx.minY - y, 0, y - bx.maxY), Math.max(bx.minZ - z, 0, z - bx.maxZ));
+      if (dist > R) continue;
+      const f = 1 - dist / R;
+      this.damagePart(q, (5.5 * f * f + 0.4 * f) * TANK_POWER, 'blast', 0, q.x, q.y, q.z);
+    }
+    this.dirty = true;
+  }
+
+  /** A heavy piece lands: what it lands on, and next to it, takes the shock. */
+  private shock(x: number, y: number, z: number, mass: number, speed: number): void {
+    const R = clamp(0.5 + mass * 0.05, 0.5, 1.6);
+    const dmg = 0.5 * mass * speed * speed * DAMAGE_K * SHOCK_SHARE * this.cascade;
+    if (dmg < 0.05) return;
+    for (const q of this.query(x - R, y - R, z - R, x + R, y + R, z + R, [])) {
+      if (q.soft || !q.solid) continue;
+      const bx = partBox(q);
+      const dist = Math.hypot(Math.max(bx.minX - x, 0, x - bx.maxX), Math.max(bx.minY - y, 0, y - bx.maxY), Math.max(bx.minZ - z, 0, z - bx.maxZ));
+      if (dist > R) continue;
+      this.damagePart(q, dmg * (1 - dist / R), 'debris', 0, q.x, q.y, q.z);
+    }
   }
 
   private knockLoose(p: Part, ball: number, x: number, y: number, z: number, src: Ball | undefined, blast: boolean): void {
@@ -1126,7 +1185,7 @@ export class World {
           d.vz = s * rel * 0.2;
         }
         if (rel > 2.4) {
-          const dmg = 0.5 * d.mass * rel * rel * DAMAGE_K * DEBRIS_DAMAGE;
+          const dmg = 0.5 * d.mass * rel * rel * DAMAGE_K * DEBRIS_DAMAGE * this.cascade;
           if (dmg > 0.06) this.damagePart(q, dmg, 'debris', 0, d.x, d.y - d.ey, d.z);
           if (rel > 1.6 && q.state !== PartState.Intact) continue;
           if (rel > 3) this.landed(d, p, rel);
@@ -1150,6 +1209,15 @@ export class World {
   /** A falling piece hits something hard: fragile things and bricks dropped from height break. */
   private landed(d: Debris, p: Part, speed: number): void {
     this.events.push({ t: 'land', part: p.id, speed, x: d.x, y: d.y - d.ey, z: d.z });
+    if (this.cascade > 1 && d.mass >= SHOCK_MASS && speed > 3) this.shock(d.x, d.y - d.ey, d.z, d.mass, speed);
+    if (p.volatile && speed > 2.5) {
+      p.state = PartState.Gone;
+      d.asleep = true;
+      this.events.push({ t: 'break', part: p.id, cause: 'land', ball: 0, x: d.x, y: d.y, z: d.z });
+      this.wake(p.id);
+      this.ignite(p);
+      return;
+    }
     if (isPanel(p) && speed > PANEL_BREAK) {
       this.shatter(d, p);
       return;
@@ -1354,6 +1422,14 @@ function supportOrder(parts: Part[]): number[] {
 }
 
 const STAND_INF = 1 << 20;
+/** Seconds between a gas bottle breaking and going off. */
+const TANK_FUSE = 0.16;
+/** Gas bottle blast strength against the Charge ball's (1). */
+const TANK_POWER = 1.25;
+/** Falling pieces this heavy send a landing shock into what is around them (cascade houses only). */
+const SHOCK_MASS = 2.5;
+/** Share of the landing energy passed on as shock. */
+const SHOCK_SHARE = 0.2;
 /** Landing speed (m/s) that splinters a roof section or floor. */
 const PANEL_BREAK = 3;
 /** Big flat pieces: roof sections, the porch roof and floors. */

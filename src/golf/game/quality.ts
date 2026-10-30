@@ -48,6 +48,9 @@ export const QUALITY = {
   /** Falling pieces, or pieces broken by other pieces, for a chain reaction. */
   chainReleased: 12,
   chainSecondary: 6,
+  /** Chain sizes that slow time (critical) and shake the lot (major). */
+  chainBig: 40,
+  chainHuge: 120,
   /** A major collapse: pieces in collapses, roof sections, or share of the house in one shot. */
   houseCollapse: 60,
   houseRoofs: 2,
@@ -70,6 +73,8 @@ export interface ShotQuality {
   /** Distinct house, furniture and garden pieces broken, knocked or brought down. */
   pieces: number;
   released: number;
+  /** Pieces brought down by something other than the ball: falls, knock-ons and blasts. */
+  chain: number;
 }
 
 const isSupport = (p: Part): boolean => p.tags.includes('support') || p.kind === 'column' || p.kind === 'lintel';
@@ -111,7 +116,8 @@ export function evaluateShot(events: readonly SimEvent[], ctx: QualityContext): 
         const p = P[e.part] as Part;
         if (counts(p)) pieces.add(e.part);
         if (p.kind === 'glass' && e.ball) glassBy.add(e.ball);
-        if (e.cause === 'debris' || e.cause === 'overload' || e.cause === 'land') secondary++;
+        // Knock-on damage: falling pieces, overloads, hard landings and gas bottles going off.
+        if (e.cause === 'debris' || e.cause === 'overload' || e.cause === 'land' || (e.cause === 'blast' && !e.ball)) secondary++;
         if (isSupport(p) || ctx.focus.has(e.part)) supportsDown.add(e.part);
         break;
       }
@@ -154,11 +160,13 @@ export function evaluateShot(events: readonly SimEvent[], ctx: QualityContext): 
   for (const b of ctx.balls) if (b.def.blastRadius === 0 && b.touched.size >= QUALITY.multiFrom) multi = true;
   const share = ctx.destructionAfter - ctx.destructionBefore;
   const support = supportsDown.size > 0 && released >= QUALITY.supportFall;
+  const chainSize = released + secondary;
   const chain = released >= QUALITY.chainReleased || secondary >= QUALITY.chainSecondary;
   const house = collapsed >= QUALITY.houseCollapse || roofs >= QUALITY.houseRoofs || share >= QUALITY.houseShare;
   const on: Record<ShotTag, boolean> = { house, support, chain, bank, seam, multi, window, aim, clean };
   const tags = TAG_ORDER.filter((t) => on[t]);
   const headline = tags[0] ?? null;
-  const tier: Tier = house ? 4 : support ? 3 : chain || bank || seam || multi || window ? 2 : pieces.size > 0 ? 1 : 0;
-  return { tags, headline, tier, pieces: pieces.size, released };
+  // Big chains are big moments even without a named collapse.
+  const tier: Tier = house || chainSize >= QUALITY.chainHuge ? 4 : support || chainSize >= QUALITY.chainBig ? 3 : chain || bank || seam || multi || window ? 2 : pieces.size > 0 ? 1 : 0;
+  return { tags, headline, tier, pieces: pieces.size, released, chain: chainSize };
 }

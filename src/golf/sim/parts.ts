@@ -89,6 +89,8 @@ export interface Part {
   house: boolean;
   /** Room the part is in, for interior objectives and the camera. */
   room?: string;
+  /** Goes off when it breaks or lands hard: blast radius in metres (gas bottles). */
+  volatile?: number;
   /** Points when broken or knocked loose (from the material unless set). */
   points: number;
   /** Supports pick these up during building (filled by the builder). */

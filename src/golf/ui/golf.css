@@ -1252,3 +1252,71 @@ html:has(.dd-title) body {
 .dd-pull.short .dd-ring {
   stroke: #8a8174;
 }
+
+/* The chain counter: sits under the card while a collapse spreads. */
+.dd-chain {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--st) + 22%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.dd-chain.show {
+  opacity: 1;
+}
+
+.dd-chain span {
+  font-family: var(--head);
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dd-ink);
+  background: var(--dd-yellow);
+  border-radius: 6px;
+  padding: 1px 8px;
+}
+
+.dd-chain b {
+  font-family: var(--head);
+  font-weight: 800;
+  font-size: 44px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--dd-paper);
+  -webkit-text-stroke: 1.5px var(--dd-ink);
+  text-shadow: 0 3px 0 var(--dd-ink);
+}
+
+.dd-chain.big b {
+  font-size: 58px;
+  color: var(--dd-yellow);
+}
+
+.dd-chain.tick b {
+  animation: dd-chain-tick 0.18s ease-out;
+}
+
+/* With the counter up, the big word sits lower so they never overlap. */
+.dd-chain.show ~ .dd-headline {
+  top: calc(var(--st) + 36%);
+}
+
+@keyframes dd-chain-tick {
+  0% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+.reduced-motion .dd-chain.tick b {
+  animation: none;
+}

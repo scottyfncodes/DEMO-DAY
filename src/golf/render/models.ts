@@ -144,6 +144,15 @@ export function buildModel(model: string, w: number, h: number, d: number, accen
       for (let i = 0; i < 3; i++) k.box(w * 0.3, h * 0.7, 0.02, 0xd8cfbd, -w * 0.33 + i * w * 0.33, y0 + h * 0.42, d / 2 + 0.005);
       k.box(w * 0.25, 0.05, d * 0.5, 0xc9ced3, w * 0.25, -y0 - h * 0.03, 0);
       break;
+    case 'tank':
+      // A red gas bottle: rounded shoulder, a collar to carry it by, a yellow warning band.
+      k.cyl(w * 0.48, w * 0.48, h * 0.7, 0xc9301c, 0, y0 + h * 0.37, 0, 14);
+      k.sphere(w * 0.48, 0xc9301c, 0, y0 + h * 0.72, 0, 1, 0.55, 1);
+      k.cyl(w * 0.49, w * 0.49, h * 0.1, 0xf2b705, 0, y0 + h * 0.5, 0, 14);
+      k.cyl(w * 0.16, w * 0.16, h * 0.12, 0x9aa3aa, 0, y0 + h * 0.9, 0, 10);
+      k.cyl(w * 0.3, w * 0.3, h * 0.06, 0x3c4146, 0, y0 + h * 0.97, 0, 12);
+      k.cyl(w * 0.46, w * 0.5, h * 0.06, 0x7e1d12, 0, y0 + h * 0.03, 0, 14);
+      break;
     case 'fridge':
       k.box(w, h, d, 0xeef1f3, 0, 0);
       k.box(0.03, h * 0.18, 0.04, 0x9aa3aa, w * 0.38, h * 0.22, d / 2 + 0.02);

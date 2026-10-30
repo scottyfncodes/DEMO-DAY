@@ -108,7 +108,8 @@ export function golfHousesScreen(app: App): ScreenInstance {
     const current = store.data.campaign.current === hd.id;
     const prog = open && rec?.shots ? houseProgress(store, hd) : null;
     const best = rec?.bestIn ? `Best: goal in ${rec.bestIn} shot${rec.bestIn === 1 ? '' : 's'}` : '';
-    const status = !open ? 'Locked' : [prog ? `${prog.down}% down · ${rec?.shots ?? 0} shot${rec?.shots === 1 ? '' : 's'}` : 'Not started', best].filter(Boolean).join(' · ');
+    const chain = rec && rec.bestChain >= 5 ? `best chain ${rec.bestChain}` : '';
+    const status = !open ? 'Locked' : [prog ? `${prog.down}% down · ${rec?.shots ?? 0} shot${rec?.shots === 1 ? '' : 's'}` : 'Not started', best, chain].filter(Boolean).join(' · ');
     const found = (rec?.found.length ?? 0);
     return h(
       'li',

@@ -1,5 +1,5 @@
 import type { BallId } from './balls';
-import { PALETTES, type HouseSpec, type YardSpec, type Zone } from './house';
+import { PALETTES, tankSpots, type HouseSpec, type YardSpec, type Zone } from './house';
 import { Rng, hashString } from './math';
 
 /**
@@ -331,7 +331,7 @@ export const SANDBOX: LevelDef = {
   number: 'SB',
   title: 'Sandbox',
   blurb: 'No par, no budget. Every ball and power-up, as much as you like.',
-  house: house({ palette: PALETTES.classic as HouseSpec['palette'] }),
+  house: { ...house({ palette: PALETTES.classic as HouseSpec['palette'] }), cascade: 2.2, tanks: tankSpots(9, 2, 7) },
   yard: yardParty,
   shots: Infinity,
   par: Infinity,
@@ -358,7 +358,7 @@ export function dailyLevel(date: string): LevelDef {
     number: 'DD',
     title: 'Daily Demo',
     blurb: 'Eight shots at today\'s house. Damage scores, and skill shots score more.',
-    house: house({ storeys, palette, chimney: rng.next() < 0.7, porch: rng.next() < 0.8, zones }),
+    house: { ...house({ storeys, palette, chimney: rng.next() < 0.7, porch: rng.next() < 0.8, zones }), cascade: 2.2, tanks: tankSpots(9, storeys, 3 + Math.floor(rng.next() * 4)) },
     yard: rng.next() < 0.5 ? yardBasic : yardParty,
     shots: 8,
     par: 8,

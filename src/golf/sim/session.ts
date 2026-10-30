@@ -26,6 +26,8 @@ export const SCORING = {
   streakMax: 2.5,
   /** Campaign: per shot left at the finish. */
   shotLeft: 250,
+  /** Per piece in the shot's chain reaction (brought down by anything but the ball). */
+  cascadePer: 10,
   /** Skill bonus per shot-quality tag. */
   tags: { clean: 20, aim: 60, window: 100, multi: 80, seam: 0, bank: 150, chain: 200, support: 250, house: 500 } as Record<ShotTag, number>,
   /** With fast resolve, a shot hands back control this long after the last ball stops, if nothing is about to give way. */
@@ -274,7 +276,7 @@ export class Session {
     for (const b of this.world.balls) if (mine.has(b.id) && b.touched.size >= SCORING.chainFrom) chainBonus += (b.touched.size - SCORING.chainFrom + 1) * SCORING.chainPer;
     this.maxChain = Math.max(this.maxChain, chain);
     const quality = evaluateShot(ev, { parts: P, balls: this.shotBalls, focus: this.focus, destructionBefore: this.destrBefore, destructionAfter: this.world.destruction() });
-    const base = this.shotPoints + chainBonus + quality.tags.reduce((s, t) => s + SCORING.tags[t], 0);
+    const base = this.shotPoints + chainBonus + quality.chain * SCORING.cascadePer + quality.tags.reduce((s, t) => s + SCORING.tags[t], 0);
     if (base >= SCORING.streakMin) this.streak++;
     else this.streak = 0;
     this.bestStreak = Math.max(this.bestStreak, this.streak);

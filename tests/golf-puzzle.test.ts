@@ -9,7 +9,7 @@ import { GOLF_SAVE_KEY, GolfStore, houseKey, normalizeGolfSave } from '../src/go
 import { predict, solveAim } from '../src/golf/sim/aim';
 import { getLevel } from '../src/golf/sim/levels';
 import { PartState } from '../src/golf/sim/parts';
-import { Session } from '../src/golf/sim/session';
+import { SCORING, Session } from '../src/golf/sim/session';
 import { World, type Shot } from '../src/golf/sim/world';
 
 class Mem implements StorageLike {
@@ -240,5 +240,45 @@ describe('save v2', () => {
     expect(n?.campaign.reached).toBe(HOUSES.length - 1);
     expect(n?.campaign.houses.h1).toMatchObject({ shots: 0, done: false, found: [3] });
     expect(n?.economy).toEqual({ inventory: { power: REWARD.cap } });
+  });
+});
+
+describe('chain reactions', () => {
+  const h3 = HOUSES[2]!;
+  const hitBottle = (spec: typeof h3.spec, h = h3): { blasts: number; down: number; s: Session } => {
+    const s = new Session({ ...houseLevel(h), house: spec });
+    const bottle = s.world.parts.find((p) => p.tags.includes('tank'))!;
+    s.fire(shotAt(s.world, 'standard', { x: bottle.x, y: bottle.y, z: bottle.z + bottle.hz + 0.02 }, 0.9).shot);
+    let blasts = 0;
+    while (s.phase === 'flight') {
+      s.step();
+      blasts += s.takeEvents().filter((e) => e.t === 'blast').length;
+    }
+    return { blasts, down: s.world.destruction(), s };
+  };
+
+  it('a gas bottle that breaks goes off, and sets off the next one', () => {
+    const r = hitBottle(h3.spec);
+    expect(r.blasts).toBeGreaterThanOrEqual(2);
+    const q = r.s.reports[0]!.quality;
+    expect(q.chain).toBeGreaterThan(20);
+    expect(q.tags).toContain('chain');
+    // Chain pieces score on their own.
+    expect(r.s.reports[0]!.base).toBeGreaterThanOrEqual(q.chain * SCORING.cascadePer);
+  });
+
+  it('the campaign cascade spreads a collapse further than the old physics', () => {
+    const h5 = HOUSES[4]!;
+    const strong = hitBottle(h5.spec, h5);
+    const plain = hitBottle({ ...h5.spec, cascade: 1 }, h5);
+    expect(strong.down).toBeGreaterThan(plain.down);
+  });
+
+  it('bottles never go off on their own, and a settled world has no lit fuses', () => {
+    const w = new World(h3.spec, h3.yard);
+    for (let i = 0; i < 360; i++) w.step();
+    expect(w.drainEvents().some((e) => e.t === 'blast')).toBe(false);
+    const r = hitBottle(h3.spec);
+    expect(r.s.world.fuses.size).toBe(0);
   });
 });

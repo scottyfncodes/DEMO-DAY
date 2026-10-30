@@ -9,7 +9,8 @@ Add it to your iPhone Home Screen (Share → Add to Home Screen) for full-screen
 ## How it plays
 
 - **Shoot** with one thumb: touch the spot you want to hit, then pull back. The pull sets power; the flight bends to reach your spot, so a full pull at a low brick is a flat drive and a soft pull is a lob. The guide shows the flight to the first thing it touches. Let go to shoot, or let go before the ring fills to only move your aim. On a keyboard, arrows move the aim, W and S set power, Space shoots.
-- **Weak points** pulse yellow while you aim: the standing parts whose loss would bring the most down.
+- **Chain reactions** are the way to bring a house down in few shots. In the campaign, Daily Demo and Sandbox, falling pieces hit hard and heavy ones (roof sections, floors) send a shock into whatever they land on, so one collapse breaks the next. **Red gas bottles** stand outside the front corners and inside behind them and upstairs: hit one, or drop something on it, and it goes off a beat later, setting off any bottle within reach and blowing out the load-bearing brick around it. A counter climbs while a chain spreads; big chains slow time and score on their own, and each house keeps your best chain. (Challenges keep the original physics, so their recorded par runs still hold.)
+- **Weak points** pulse yellow while you aim: the standing parts whose loss would bring the most down, and the gas bottles still waiting.
 - **Shot quality**: one headline per shot, the best thing it did: CLEAN HIT, PERFECT AIM, WINDOW ENTRY, MULTI HIT, SEAM SHOT, BANK SHOT, CHAIN REACTION, SUPPORT DOWN, HOUSE DOWN. Small hits tick, critical supports slow time, big collapses shake the lot.
 - **Special balls are hidden in the bricks.** Standard balls are unlimited. Each house hides a few special balls inside its bricks, always in the same bricks; break one and the ball pops out into your bag. A row of slots shows how many are still hidden, but not what they are.
 
@@ -24,7 +25,7 @@ Add it to your iPhone Home Screen (Share → Add to Home Screen) for full-screen
 
 ## Modes
 
-- **Play**: ten houses on a street, each bigger than the last, from a one-storey cottage to a three-storey house 14 m wide. Each has a destruction goal (15 to 22%) that opens the next one. There is no shot limit; the record to beat is how few shots it took. Damage stays between visits, and any house can be rebuilt to try for fewer shots (balls already found stay found).
+- **Play**: ten houses on a street, each bigger than the last, from a one-storey cottage to a three-storey house 14 m wide. Each has a destruction goal (15% on the cottage up to 50% on the biggest) that opens the next one. There is no shot limit; the record to beat is how few shots it took. Damage stays between visits, and any house can be rebuilt to try for fewer shots (balls already found stay found).
 - **Daily Demo**: one house per date, the same on every device. Eight shots, scored on damage and skill, with your recent days kept on this device.
 - **Sandbox**: every special ball, unlimited.
 - **Challenges**: the original ten trick-shot levels, the precision shots and Score Attack, with shot limits, stars and medals.
