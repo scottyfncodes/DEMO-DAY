@@ -44,7 +44,10 @@ export interface Palette {
 }
 
 export interface HouseSpec {
-  storeys: 1 | 2;
+  storeys: Storeys;
+  /** Frontage and depth in metres (default 9 by 6). Multiples of 1.8 keep the brick courses whole. */
+  width?: number;
+  depth?: number;
   porch: boolean;
   chimney: boolean;
   /** Overrides the standard openings for this storey count. */
@@ -73,7 +76,7 @@ export interface Room {
 export interface HouseInfo {
   W: number;
   D: number;
-  storeys: 1 | 2;
+  storeys: Storeys;
   wallTop: number;
   ridgeY: number;
   pitch: number;
@@ -99,10 +102,45 @@ export const PALETTES: Record<string, Palette> = {
   sand: { brick: 0xd2a476, roof: 0x748a9a, trim: 0xffffff, door: 0x8c3f5d, plaster: 0xf6efe0 },
 };
 
-const W = 9;
-const D = 6;
+export type Storeys = 1 | 2 | 3;
 const PITCH = 38 * (Math.PI / 180);
 const EPS = 0.004;
+
+/**
+ * Openings for any frontage, depth and height: the front door, ground floor windows either side
+ * of it (wide where they fit, narrow at the ends), a row of windows on each upper storey, and a
+ * window per storey in the back and in each side, lined up so a ball can go in one side and out another.
+ */
+export function openingsFor(W: number, D: number, storeys: Storeys): Opening[] {
+  const g0 = 1.2;
+  const g1 = 2.7;
+  const half = W / 2;
+  const list: Opening[] = [{ wall: 'front', a0: -0.3, a1: 0.9, y0: FOUNDATION_TOP, y1: g1, kind: 'door' }];
+  // Ground floor, outward from the door on each side.
+  for (const side of [-1, 1]) {
+    let edge = side < 0 ? -1.8 : 2.1;
+    for (let k = 0; k < 4; k++) {
+      const w = k === 0 ? 1.8 : 1.2;
+      const a0 = side < 0 ? edge - w : edge;
+      const a1 = side < 0 ? edge : edge + w;
+      if (a0 < -half + 0.6 - 1e-6 || a1 > half - 0.6 + 1e-6) break;
+      list.push({ wall: 'front', a0, a1, y0: g0, y1: g1, kind: 'window' });
+      edge = side < 0 ? a0 - 0.9 : a1 + 0.9;
+    }
+  }
+  const upperX: Array<[number, number]> = [[-3.6, -2.4], [-0.3, 0.9], [2.4, 3.6]];
+  for (let x = 4.5; x + 1.2 <= half - 0.6 + 1e-6; x += 2.1) upperX.push([-x - 1.2, -x], [x, x + 1.2]);
+  const sideMid = -D / 2;
+  for (let k = 1; k < storeys; k++) {
+    const u0 = FOUNDATION_TOP + k * STOREY_H + 0.6;
+    for (const [a0, a1] of upperX) list.push({ wall: 'front', a0, a1, y0: u0, y1: u0 + 1.5, kind: 'window' });
+    list.push({ wall: 'back', a0: -3.3, a1: -2.1, y0: u0, y1: u0 + 1.5, kind: 'window' }, { wall: 'back', a0: 2.4, a1: 3.6, y0: u0, y1: u0 + 1.5, kind: 'window' });
+    for (const wall of ['left', 'right'] as const) list.push({ wall, a0: sideMid - 0.6, a1: sideMid + 0.6, y0: u0, y1: u0 + 1.2, kind: 'window' });
+  }
+  list.push({ wall: 'back', a0: -3.3, a1: -1.8, y0: g0, y1: g1, kind: 'window' }, { wall: 'back', a0: 2.1, a1: 3.3, y0: g0, y1: g1, kind: 'window' });
+  for (const wall of ['left', 'right'] as const) list.push({ wall, a0: sideMid - 0.6, a1: sideMid + 0.6, y0: g0, y1: g1, kind: 'window' });
+  return list;
+}
 
 /** The standard openings: windows in every wall, a front door, aligned so a ball can go in one side and out another. */
 export function standardOpenings(storeys: 1 | 2): Opening[] {
@@ -337,11 +375,13 @@ const r2 = (v: number): number => Math.round(v * 1000) / 1000;
 export function buildLevel(spec: HouseSpec, yard: YardSpec): { parts: Part[]; info: HouseInfo } {
   const b = new HouseBuilder();
   const { palette } = spec;
+  const W = spec.width ?? 9;
+  const D = spec.depth ?? 6;
   const storeys = spec.storeys;
   const wallTop = FOUNDATION_TOP + storeys * STOREY_H;
   const rise = (D / 2) * Math.tan(PITCH);
   const ridgeY = wallTop + rise;
-  const openings = spec.openings ?? standardOpenings(storeys);
+  const openings = spec.openings ?? (W === 9 && D === 6 && storeys <= 2 ? standardOpenings(storeys as 1 | 2) : openingsFor(W, D, storeys));
   const zones = spec.zones ?? [];
   const doorX = 0.3;
 
@@ -505,16 +545,18 @@ export function buildLevel(spec: HouseSpec, yard: YardSpec): { parts: Part[]; in
   };
 
   const floorTop = FOUNDATION_TOP + STOREY_H;
-  const groundCeil = storeys === 2 ? floorTop - 0.2 : wallTop;
+  const groundCeil = storeys >= 2 ? floorTop - 0.2 : wallTop;
   const rooms: Room[] = [];
   const roomBox = (x0: number, x1: number, y0: number, y1: number): Box => ({ minX: x0, maxX: x1, minY: y0, maxY: y1, minZ: inZ0, maxZ: inZ1 });
   rooms.push({ id: 'living', name: 'Living room', box: roomBox(inX0, partX[0] as number, FOUNDATION_TOP, groundCeil) });
   rooms.push({ id: 'hall', name: 'Hallway', box: roomBox(partX[0] as number, partX[1] as number, FOUNDATION_TOP, groundCeil) });
   rooms.push({ id: 'kitchen', name: 'Kitchen', box: roomBox(partX[1] as number, inX1, FOUNDATION_TOP, groundCeil) });
-  const groundParts = partX.map((x, i) => partition(x, FOUNDATION_TOP, groundCeil, storeys === 2 ? 5 : 6, `part-g${i}`, false));
+  const groundParts = partX.map((x, i) => partition(x, FOUNDATION_TOP, groundCeil, storeys >= 2 ? 5 : 6, `part-g${i}`, false));
 
-  const furniture = (model: string, x: number, z: number, y: number, room: string, extra: Partial<Part> = {}): Part => {
+  const furniture = (model: string, x: number, z0: number, y: number, room: string, extra: Partial<Part> = {}): Part => {
     const f = FURNITURE[model] as FurnitureDef;
+    // In a deeper house, what stands against the back wall moves back with it.
+    const z = z0 < -3 ? z0 - (D - 6) : z0;
     const p = b.add({
       kind: 'furniture',
       mat: f.mat,
@@ -537,7 +579,8 @@ export function buildLevel(spec: HouseSpec, yard: YardSpec): { parts: Part[]; in
     return b.autoSupport(p);
   };
 
-  if (storeys === 2) {
+  const floor2Top = FOUNDATION_TOP + 2 * STOREY_H;
+  if (storeys >= 2) {
     // Upper floor: one section per room, bearing on the front and back walls.
     const yIn = floorTop - 0.15;
     const secs: Array<[number, number, string]> = [
@@ -570,10 +613,12 @@ export function buildLevel(spec: HouseSpec, yard: YardSpec): { parts: Part[]; in
       const need = groups.map((g) => Math.max(1, Math.ceil(g.length / 3)));
       b.add({ kind: 'floor', mat: 'floor', x: (x0 + x1) / 2, y: floorTop - 0.1, z: (z0 + inZ1) / 2, hx: (x1 - x0) / 2, hy: 0.1, hz: (inZ1 - z0) / 2, groups, need, tags: ['floor', 'support'], label, color: 0xc89b6a, span: 0 });
     }
-    rooms.push({ id: 'bedroom', name: 'Bedroom', box: roomBox(inX0, partX[0] as number, floorTop, wallTop + rise) });
-    rooms.push({ id: 'landing', name: 'Landing', box: roomBox(partX[0] as number, partX[1] as number, floorTop, wallTop + rise) });
-    rooms.push({ id: 'study', name: 'Study', box: roomBox(partX[1] as number, inX1, floorTop, wallTop + rise) });
-    partX.forEach((x, i) => partition(x, floorTop, wallTop, 6, `part-u${i}`, true));
+    const upTop = storeys === 3 ? floor2Top - 0.2 : wallTop + rise;
+    rooms.push({ id: 'bedroom', name: 'Bedroom', box: roomBox(inX0, partX[0] as number, floorTop, upTop) });
+    rooms.push({ id: 'landing', name: 'Landing', box: roomBox(partX[0] as number, partX[1] as number, floorTop, upTop) });
+    rooms.push({ id: 'study', name: 'Study', box: roomBox(partX[1] as number, inX1, floorTop, upTop) });
+    if (storeys === 3) partX.forEach((x, i) => partition(x, floorTop, floor2Top - 0.2, 5, `part-u${i}`, true));
+    else partX.forEach((x, i) => partition(x, floorTop, wallTop, 6, `part-u${i}`, true));
     // Stairs up the left of the hall, rising to the landing.
     for (let k = 0; k < 9; k++) {
       const z1 = -5.6 + (k + 1) * 0.34;
@@ -582,10 +627,27 @@ export function buildLevel(spec: HouseSpec, yard: YardSpec): { parts: Part[]; in
     }
   }
 
+  if (storeys === 3) {
+    // Top floor: three full sections, bearing on the front and back walls, with an attic room over each.
+    const yIn = floor2Top - 0.15;
+    const secs: Array<[number, number, string, string]> = [
+      [inX0, partX[0] as number, 'Attic floor', 'attic'],
+      [partX[0] as number, partX[1] as number, 'Top landing floor', 'top-landing'],
+      [partX[1] as number, inX1, 'Den floor', 'den'],
+    ];
+    for (const [x0, x1, label, room] of secs) {
+      const groups = [bearing('front', yIn, x0, x1), bearing('back', yIn, x0, x1)];
+      const need = groups.map((g) => Math.max(1, Math.ceil(g.length / 3)));
+      b.add({ kind: 'floor', mat: 'floor', x: (x0 + x1) / 2, y: floor2Top - 0.1, z: (inZ0 + inZ1) / 2, hx: (x1 - x0) / 2, hy: 0.1, hz: (inZ1 - inZ0) / 2, groups, need, tags: ['floor', 'support'], label, color: 0xc89b6a, span: 0 });
+      rooms.push({ id: room, name: label.replace(' floor', ''), box: roomBox(x0, x1, floor2Top, wallTop + rise) });
+    }
+    partX.forEach((x, i) => partition(x, floor2Top, wallTop, 6, `part-t${i}`, true));
+  }
+
   // Roof: decks per section on each slope, tiles on the decks, a ridge beam on the gables.
   const ovZ = 0.35;
   const ovX = 0.25;
-  const secN = 3;
+  const secN = W > 10 ? 4 : 3;
   const rx0 = -W / 2 - ovX;
   const secW = (W + 2 * ovX) / secN;
   const cosP = Math.cos(PITCH);
@@ -664,7 +726,7 @@ export function buildLevel(spec: HouseSpec, yard: YardSpec): { parts: Part[]; in
 
   // Porch: two columns carry a beam; the beam and the front wall carry the porch roof.
   if (spec.porch) {
-    const ph = storeys === 2 ? 3.0 : 2.7;
+    const ph = storeys >= 2 ? 3.0 : 2.7;
     const pz = 1.95;
     b.add({ kind: 'slab', mat: 'slab', x: doorX, y: FOUNDATION_TOP / 2, z: 1.05, hx: 1.7, hy: FOUNDATION_TOP / 2, hz: 1.05, house: false, color: 0xd6d0c4, tags: ['porch'] });
     const cols = [-1.45, 1.45].map((dx) =>
@@ -711,7 +773,7 @@ export function buildLevel(spec: HouseSpec, yard: YardSpec): { parts: Part[]; in
     furniture('diningTable', 2.75, -2.6, F, 'kitchen');
     furniture('chair', 1.8, -2.6, F, 'kitchen');
     furniture('chair', 3.7, -2.6, F, 'kitchen');
-    if (storeys === 2) {
+    if (storeys >= 2) {
       const U = floorTop;
       furniture('bed', -2.4, -4.6, U, 'bedroom');
       furniture('nightstand', -1.3, -5.35, U, 'bedroom');
@@ -723,6 +785,15 @@ export function buildLevel(spec: HouseSpec, yard: YardSpec): { parts: Part[]; in
       furniture('monitor', 2.8, -5.35, U + 0.75, 'study', { tags: ['interior', 'monitor', 'target'] });
       furniture('bookshelf', 3.97, -1.4, U, 'study', { hx: 0.175, hz: 0.5 });
       furniture('chair', 2.8, -4.5, U, 'study');
+    }
+    if (storeys === 3) {
+      const T = floor2Top;
+      furniture('bed', -2.4, -4.6, T, 'attic');
+      furniture('wardrobe', -3.85, -1.2, T, 'attic', { hx: 0.3, hz: 0.6 });
+      furniture('bookshelf', 0.3, -5.3, T, 'top-landing');
+      furniture('sofa', 2.8, -4.9, T, 'den');
+      furniture('tvStand', 2.8, -1.4, T, 'den');
+      furniture('tv', 2.8, -1.42, T + 0.55, 'den');
     }
   }
 
@@ -752,6 +823,8 @@ export function buildLevel(spec: HouseSpec, yard: YardSpec): { parts: Part[]; in
   void glassParts;
   void lintels;
 
+  // Bigger houses put the tee further back, so the whole house still fits the view.
+  const tee = { x: spec.teeX ?? 0, y: 0, z: 20 + Math.max(0, W - 9) * 1.2 + (storeys === 3 ? 3 : 0) };
   const info: HouseInfo = {
     W,
     D,
@@ -762,10 +835,10 @@ export function buildLevel(spec: HouseSpec, yard: YardSpec): { parts: Part[]; in
     interior: { minX: inX0, maxX: inX1, minY: FOUNDATION_TOP - 0.05, maxY: ridgeY, minZ: inZ0, maxZ: inZ1 },
     rooms,
     doorX,
-    tee: { x: spec.teeX ?? 0, y: 0, z: 20 },
+    tee,
     perches: [-2.6, -0.4, 1.9, 3.1].map((x) => ({ x, y: ridgeY + 0.22, z: -D / 2 })),
-    paving: [{ minX: doorX - 0.7, maxX: doorX + 0.7, minZ: 2.1, maxZ: 17 }],
-    bounds: { minX: -16, maxX: 16, minY: -1, maxY: 40, minZ: -15, maxZ: 28 },
+    paving: [{ minX: doorX - 0.7, maxX: doorX + 0.7, minZ: 2.1, maxZ: tee.z - 3 }],
+    bounds: { minX: -16, maxX: 16, minY: -1, maxY: 40, minZ: -15, maxZ: tee.z + 8 },
     palette,
     trees: yard.trees,
   };

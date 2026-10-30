@@ -33,6 +33,8 @@ export interface ViewState {
   pins: number[];
   /** Weak points: standing parts whose loss would bring a lot down. They pulse while aiming. */
   weak?: number[];
+  /** The point the player is aiming at, marked while aiming. */
+  target?: { x: number; y: number; z: number } | null;
 }
 
 interface Inst {
@@ -92,6 +94,7 @@ export class GolfRenderer {
   private ghostHold = 0;
   private ballMeshes: THREE.Mesh[] = [];
   private ballMats = new Map<BallId, THREE.MeshStandardMaterial>();
+  private readonly ballGeo = new THREE.SphereGeometry(1, 20, 14);
   private teeBalls: THREE.Mesh[] = [];
   private guideDots: THREE.InstancedMesh;
   /** The previous shot's flight, shown faintly while aiming the next one. */
@@ -109,6 +112,8 @@ export class GolfRenderer {
   private cat: { g: THREE.Group; fled: boolean; t: number } | null = null;
   private pins: THREE.Mesh[] = [];
   private weak: number[] = [];
+  private targetMark: THREE.Group;
+  private reveals: Array<{ mesh: THREE.Mesh; t: number; x: number; y: number; z: number; r: number }> = [];
   private weakGlow = 0;
   private sun: THREE.DirectionalLight;
   private time = 0;
@@ -190,7 +195,7 @@ export class GolfRenderer {
       const d = BALLS[id];
       this.ballMats.set(id, new THREE.MeshStandardMaterial({ map: ballTexture(d.color, d.accent), roughness: id === 'heavy' ? 0.35 : 0.45, metalness: id === 'heavy' ? 0.6 : 0 }));
     }
-    const ballGeo = new THREE.SphereGeometry(1, 20, 14);
+    const ballGeo = this.ballGeo;
     for (let i = 0; i < 18; i++) {
       const m = new THREE.Mesh(ballGeo, this.ballMats.get('standard'));
       m.castShadow = true;
@@ -212,6 +217,17 @@ export class GolfRenderer {
     }
     const pinGeo = new THREE.ConeGeometry(0.22, 0.5, 4);
     pinGeo.rotateX(Math.PI);
+    // The aim mark: a ring with a dark rim, always on top, facing the camera.
+    this.targetMark = new THREE.Group();
+    const markRim = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.24, 32), new THREE.MeshBasicMaterial({ color: 0x221b14, depthTest: false, transparent: true, opacity: 0.8 }));
+    const markRing = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.22, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true }));
+    const markDot = new THREE.Mesh(new THREE.CircleGeometry(0.035, 16), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true }));
+    for (const [m, o] of [[markRim, 8], [markRing, 9], [markDot, 9]] as Array<[THREE.Mesh, number]>) {
+      m.renderOrder = o;
+      this.targetMark.add(m);
+    }
+    this.targetMark.visible = false;
+    this.scene.add(this.targetMark);
     for (let i = 0; i < 6; i++) {
       const p = new THREE.Mesh(pinGeo, new THREE.MeshStandardMaterial({ color: 0xf2b705, emissive: 0x6b4f00, roughness: 0.5 }));
       p.visible = false;
@@ -373,6 +389,25 @@ export class GolfRenderer {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+  }
+
+  /** The world ray through a screen point (CSS px), for picking what the thumb is on. */
+  ray(sx: number, sy: number): { ox: number; oy: number; oz: number; dx: number; dy: number; dz: number } {
+    const o = this.camera.position;
+    tmpV.set((sx / this.width) * 2 - 1, -(sy / this.height) * 2 + 1, 0.5).unproject(this.camera).sub(o).normalize();
+    return { ox: o.x, oy: o.y, oz: o.z, dx: tmpV.x, dy: tmpV.y, dz: tmpV.z };
+  }
+
+  /** A found special ball pops out of its brick, spins, and shrinks away into the bag. */
+  revealBall(x: number, y: number, z: number, id: BallId): void {
+    const mesh = new THREE.Mesh(this.ballGeo, this.ballMats.get(id));
+    mesh.position.set(x, y, z);
+    mesh.scale.setScalar(0.01);
+    this.scene.add(mesh);
+    this.reveals.push({ mesh, t: 0, x, y, z, r: BALLS[id].radius * 4 });
+    this.fx.ring(x, y, z + 0.2, 0, 0, 1, 1.1, 0xf2b705, 0.7);
+    this.fx.ring(x, y, z + 0.2, 0, 0, 1, 0.6, 0xffffff, 0.5);
+    this.fx.burst('dust', x, y, z + 0.2, 12, 3, 0.06);
   }
 
   /** Screen position (CSS px) of a world point; null if behind the camera. */
@@ -647,6 +682,31 @@ export class GolfRenderer {
     this.updateGuide(view);
     this.updateCritters(dt);
 
+    // The aim mark, a steady size on screen.
+    const tg = view.target;
+    this.targetMark.visible = !!tg && view.phase === 'aim';
+    if (tg && this.targetMark.visible) {
+      this.targetMark.position.set(tg.x, tg.y, tg.z);
+      this.targetMark.quaternion.copy(this.camera.quaternion);
+      this.targetMark.scale.setScalar(Math.max(1, this.camera.position.distanceTo(this.targetMark.position) / 16));
+    }
+
+    // Found balls: up out of the brick, a beat in the air, then away.
+    for (let i = this.reveals.length - 1; i >= 0; i--) {
+      const r = this.reveals[i] as (typeof this.reveals)[number];
+      r.t += dt;
+      const up = Math.min(1, r.t / 0.45);
+      const ease = 1 - (1 - up) * (1 - up);
+      const shrink = r.t > 2.2 ? Math.max(0, 1 - (r.t - 2.2) / 0.4) : 1;
+      r.mesh.position.set(r.x, r.y + ease * 1.2 + Math.sin(r.t * 4) * 0.06, r.z + 0.4 + ease * 2.2);
+      r.mesh.scale.setScalar(r.r * Math.min(1, r.t / 0.2) * shrink);
+      r.mesh.rotation.y += dt * 5;
+      if (r.t > 2.6) {
+        this.scene.remove(r.mesh);
+        this.reveals.splice(i, 1);
+      }
+    }
+
     // Objective pins.
     this.pins.forEach((pin, i) => {
       const id = view.pins[i];
@@ -839,8 +899,10 @@ export class GolfRenderer {
     const tx = info.tee.x * 0.7;
     const pos = zoom ? new THREE.Vector3(0.8 + tx * 0.5, 3.1, 10.5) : new THREE.Vector3((portrait ? 0.2 : 1.0) + tx, portrait ? 3.9 : 3.4, info.tee.z + (portrait ? 6.9 : 6));
     // Tilted down a little so the golfer and the tee sit in the foreground, the house above them.
-    const look = zoom ? new THREE.Vector3(0.3 + tx * 0.3, 2.6, 0) : new THREE.Vector3(0.3 + tx * 0.4, portrait ? 1.0 : info.ridgeY * 0.42, -2);
-    const halfW = zoom ? 4.9 : 6.4;
+    // Taller houses tilt the view up a little, wider ones widen it.
+    const tall0 = Math.max(0, info.ridgeY - 8.35);
+    const look = zoom ? new THREE.Vector3(0.3 + tx * 0.3, 2.6, 0) : new THREE.Vector3(0.3 + tx * 0.4, portrait ? 1.0 + tall0 * 0.45 : info.ridgeY * 0.42, -2);
+    const halfW = (zoom ? 4.9 : 6.4) * Math.max(1, (info.W + 1.6) / 10.6);
     const dist = pos.distanceTo(look);
     const hfov = 2 * Math.atan(halfW / dist);
     // Also keep the house's height in frame (it matters on wide screens).

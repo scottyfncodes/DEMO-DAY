@@ -8,10 +8,10 @@ Add it to your iPhone Home Screen (Share → Add to Home Screen) for full-screen
 
 ## How it plays
 
-- **Shoot** with one thumb: press anywhere and pull back. The further you pull, the harder and higher the shot; pull to the side to turn (slowly for fine turns). The guide shows the flight to the first thing it touches and turns white on a mortar joint. Let go to shoot, or let go before the ring fills to cancel. On a keyboard, arrows aim and set power and Space shoots.
+- **Shoot** with one thumb: touch the spot you want to hit, then pull back. The pull sets power; the flight bends to reach your spot, so a full pull at a low brick is a flat drive and a soft pull is a lob. The guide shows the flight to the first thing it touches. Let go to shoot, or let go before the ring fills to only move your aim. On a keyboard, arrows move the aim, W and S set power, Space shoots.
 - **Weak points** pulse yellow while you aim: the standing parts whose loss would bring the most down.
 - **Shot quality**: one headline per shot, the best thing it did: CLEAN HIT, PERFECT AIM, WINDOW ENTRY, MULTI HIT, SEAM SHOT, BANK SHOT, CHAIN REACTION, SUPPORT DOWN, HOUSE DOWN. Small hits tick, critical supports slow time, big collapses shake the lot.
-- **Special balls are earned.** Standard balls are unlimited. Skilful shots fill the reward meter, and the skill that fills it picks the ball: a seam shot pays a Power ball, a bank shot a Superball, a support a Heavy ball, a multi hit a Multiball, a chain reaction a Charge. Repeating the same easy trick is worth less each time. All numbers live in `src/golf/game/rewards.ts`.
+- **Special balls are hidden in the bricks.** Standard balls are unlimited. Each house hides a few special balls inside its bricks, always in the same bricks; break one and the ball pops out into your bag. A row of slots shows how many are still hidden, but not what they are.
 
 | Ball | What it does |
 | --- | --- |
@@ -24,7 +24,7 @@ Add it to your iPhone Home Screen (Share → Add to Home Screen) for full-screen
 
 ## Modes
 
-- **Play**: ten houses, each with one structural idea and one objective (break bricks, drop the porch, smash windows, undercut the front wall, collapse a floor, cut the chimney, crack reinforced footing, raise the roof, the load-bearing corners, the whole house). No shot limit. Finishing opens the next house and pays out specials; a finished house can still be played or rebuilt.
+- **Play**: ten houses on a street, each bigger than the last, from a one-storey cottage to a three-storey house 14 m wide. Each has a destruction goal (15 to 22%) that opens the next one. There is no shot limit; the record to beat is how few shots it took. Damage stays between visits, and any house can be rebuilt to try for fewer shots (balls already found stay found).
 - **Daily Demo**: one house per date, the same on every device. Eight shots, scored on damage and skill, with your recent days kept on this device.
 - **Sandbox**: every special ball, unlimited.
 - **Challenges**: the original ten trick-shot levels, the precision shots and Score Attack, with shot limits, stars and medals.

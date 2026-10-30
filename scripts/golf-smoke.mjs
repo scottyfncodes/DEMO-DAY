@@ -59,17 +59,16 @@ async function main() {
   const cy = vp.height * 0.42;
   const used = () => page.evaluate(() => window.__golf.session.shotsUsed);
 
-  // A press without a pull is not a shot, and sideways movement turns the aim.
-  const y0 = await page.evaluate(() => window.__golf.aim.yaw);
-  await touch('touchStart', cx, cy);
-  for (let i = 1; i <= 6; i++) await touch('touchMove', cx - i * 8, cy + 2);
+  // A touch without a pull sets the aim and shoots nothing.
+  const t0 = await page.evaluate(() => ({ ...window.__golf.aim.target }));
+  await touch('touchStart', cx - 60, cy);
   await touch('touchEnd');
   await page.waitForTimeout(300);
-  check((await used()) === 0, 'a sideways slide fired a shot');
-  check((await page.evaluate(() => window.__golf.aim.yaw)) > y0 + 0.5, 'pulling left did not turn the aim right');
+  check((await used()) === 0, 'a touch without a pull fired a shot');
+  const t1 = await page.evaluate(() => ({ ...window.__golf.aim.target }));
+  check(Math.hypot(t1.x - t0.x, t1.y - t0.y) > 0.2, 'touching the house did not move the aim');
 
-  // Pull back: the power ring and the guide show while the thumb is down.
-  await page.evaluate(() => (window.__golf.aim.yaw = -4));
+  // Touch a spot and pull back: the power ring and the guide show while the thumb is down.
   await touch('touchStart', cx, cy);
   for (let i = 1; i <= 10; i++) await touch('touchMove', cx, cy + i * 14);
   await page.waitForTimeout(400);
@@ -92,13 +91,36 @@ async function main() {
   }
   await page.waitForTimeout(900);
   await snap(page, 'after-shots');
-  const st = await page.evaluate(() => ({ broken: window.__golf.session.world.parts.filter((p) => p.state !== 0 && p.house).length, meter: window.__golf.store.data.economy.meter, inv: window.__golf.store.data.economy.inventory }));
+  const st = await page.evaluate(() => ({ broken: window.__golf.session.world.parts.filter((p) => p.state !== 0 && p.house).length, inv: window.__golf.store.data.economy.inventory }));
   check(st.broken > 3, `shots broke too little (${st.broken})`);
-  console.log(`    broken ${st.broken}, meter ${st.meter.toFixed(1)}, inventory ${JSON.stringify(st.inv)}`);
+  console.log(`    broken ${st.broken}, inventory ${JSON.stringify(st.inv)}`);
+
+  // Break a brick with a ball hidden in it: out it pops, into the bag.
+  const hid = await page.evaluate(() => {
+    for (const [id] of window.__golf.hidden) {
+      const p = window.__golf.session.world.parts[id];
+      if (p.state === 0 && p.wall === 'front') return { x: p.x, y: p.y, z: p.z + p.hz + 0.02 };
+    }
+    return null;
+  });
+  if (hid) {
+    for (let k = 0; k < 4; k++) {
+      const found = await page.evaluate(() => window.__golf.store.houseRec('h1').found.length);
+      if (found) break;
+      await page.evaluate(({ x, y, z }) => window.__golf.aimAt(x, y, z, 1), hid);
+      await page.evaluate(() => window.__golf.fire());
+      await page.waitForTimeout(900);
+      if (k === 0) await snap(page, 'found-ball');
+      await waitAim(page);
+    }
+    const f = await page.evaluate(() => ({ found: window.__golf.store.houseRec('h1').found.length, inv: window.__golf.store.data.economy.inventory }));
+    check(f.found >= 1, 'breaking the brick with a hidden ball found nothing');
+    console.log(`    found ${f.found}, inventory ${JSON.stringify(f.inv)}`);
+  }
 
   // Damage persists: reload and come back to the same house.
   await page.evaluate(() => window.__golf.persist());
-  const before = st.broken;
+  const before = await page.evaluate(() => window.__golf.session.world.parts.filter((p) => p.state !== 0 && p.house).length);
   await page.reload({ waitUntil: 'networkidle' });
   await page.waitForTimeout(2000);
   await snap(page, 'title-after');

@@ -3,11 +3,10 @@ import { h } from '../../ui/dom';
 import { ICON } from '../../ui/icons';
 import { sheet } from '../../ui/screens/common';
 import { HOUSES, houseLevel, type HouseDef } from '../game/houses';
-import { REWARD, SPECIALS } from '../game/rewards';
+import { SPECIALS } from '../game/rewards';
 import { GolfRenderer, type ViewState } from '../render/scene';
 import { BALLS, type BallId } from '../sim/balls';
 import { CAMPAIGN, PRECISION, SCORE_ATTACK, objectiveText, type LevelDef } from '../sim/levels';
-import { Session } from '../sim/session';
 import { World } from '../sim/world';
 import { MODE_UNLOCK, modeOpen, todayKey, type GolfStore } from '../save';
 import { GICON, ballSwatch } from './icons';
@@ -23,17 +22,14 @@ function starRow(n: number): HTMLElement {
   return el;
 }
 
-/** The house's objective progress as 0..1 and a short label, read from its saved damage. */
+/** How far a house is toward its goal, read from its saved damage. */
 function houseProgress(store: GolfStore, hd: HouseDef): { share: number; label: string; down: number; world: World } {
   const level = houseLevel(hd);
   const world = new World(level.house, level.yard, 7);
   const snap = store.loadHouse(hd.id);
   if (snap) world.restore(snap);
-  const s = new Session(level, 7, { world });
-  const [a, b] = s.progress(hd.objective);
-  const share = Math.min(1, b > 0 ? a / b : 0);
-  const label = hd.objective.kind === 'destruction' || hd.objective.kind === 'wall' ? `${Math.min(a, b)}% of ${b}%` : hd.objective.kind === 'collapse' && hd.objective.what !== 'roof' && hd.objective.what !== 'floor' ? (a >= b ? 'Done' : 'Standing') : `${Math.min(a, b)} of ${b}`;
-  return { share, label, down: Math.floor(world.destruction() * 100), world };
+  const down = Math.floor(world.destruction() * 100);
+  return { share: Math.min(1, down / hd.goal), label: `${down}% of ${hd.goal}%`, down, world };
 }
 
 // ------------------------------------------------------------------- title
@@ -57,7 +53,7 @@ export function golfTitleScreen(app: App): ScreenInstance {
     'button',
     { class: 'dd-play', onClick: () => (app.play('select'), app.go('golf', { id: hd.id })) },
     h('span', { class: 'dd-play-label', text: started ? 'Play' : 'Start' }),
-    h('span', { class: 'dd-play-sub', text: rec.done ? 'Finished. Keep smashing' : prog.share > 0 ? `${Math.round(prog.share * 100)}% of the way` : 'Fresh house' }),
+    h('span', { class: 'dd-play-sub', text: rec.done ? 'Goal reached. Keep smashing' : rec.shots > 0 ? `${rec.shots} shot${rec.shots === 1 ? '' : 's'} so far` : 'Fresh house' }),
   );
   const link = (label: string, go: () => void): HTMLElement => h('button', { class: 'dd-link', onClick: () => (app.play('tap'), go()) }, h('span', { text: label }));
   const el = h(
@@ -73,10 +69,10 @@ export function golfTitleScreen(app: App): ScreenInstance {
         { class: 'dd-house-line', 'aria-label': 'All houses', onClick: () => (app.play('tap'), app.go('houses')) },
         h('span', { class: 'dd-kicker', text: `House ${hd.number} of ${HOUSES.length}` }),
         h('b', { text: hd.name }),
-        h('span', { class: 'dd-house-obj' }, h('span', { text: objectiveText(hd.objective) }), h('span', { class: 'dd-house-count', text: rec.done ? 'Done' : prog.label })),
-        h('span', { class: 'dd-obj-bar' }, h('i', { class: 'dd-obj-fill', style: `transform:scaleX(${rec.done ? 1 : prog.share})` })),
+        h('span', { class: 'dd-house-obj' }, h('span', { text: `Bring ${hd.goal}% down` }), h('span', { class: 'dd-house-count', text: prog.label })),
+        h('span', { class: 'dd-obj-bar' }, h('i', { class: 'dd-obj-fill', style: `transform:scaleX(${prog.share})` })),
       ),
-      inv.length ? h('div', { class: 'dd-inv', 'aria-label': 'Special balls' }, ...inv.map((b) => h('span', { class: 'dd-inv-ball', title: BALLS[b].name }, h('span', { class: 'dd-swatch', html: ballSwatch(b, 22) }), h('b', { text: String(store.data.economy.inventory[b]) }))), h('span', { class: 'dd-inv-meter', 'aria-label': `Reward meter ${Math.round(store.data.economy.meter)} of ${REWARD.meterSize}` }, h('i', { style: `transform:scaleX(${store.data.economy.meter / REWARD.meterSize})` }))) : null,
+      inv.length ? h('div', { class: 'dd-inv', 'aria-label': 'Special balls' }, ...inv.map((b) => h('span', { class: 'dd-inv-ball', title: BALLS[b].name }, h('span', { class: 'dd-swatch', html: ballSwatch(b, 22) }), h('b', { text: String(store.data.economy.inventory[b]) })))) : null,
       play,
       h('nav', { class: 'dd-modes' }, link('Daily Demo', () => app.go('golf', { id: `daily-${todayKey()}` })), link('Sandbox', () => app.go('golf', { id: 'sandbox' })), link('Challenges', () => app.go('challenges'))),
     ),
@@ -111,7 +107,9 @@ export function golfHousesScreen(app: App): ScreenInstance {
     const rec = store.data.campaign.houses[hd.id];
     const current = store.data.campaign.current === hd.id;
     const prog = open && rec?.shots ? houseProgress(store, hd) : null;
-    const status = !open ? 'Locked' : rec?.done ? `Done in ${rec.doneIn} shot${rec.doneIn === 1 ? '' : 's'}` : prog ? `${prog.down}% down · ${rec?.shots ?? 0} shots` : 'Not started';
+    const best = rec?.bestIn ? `Best: goal in ${rec.bestIn} shot${rec.bestIn === 1 ? '' : 's'}` : '';
+    const status = !open ? 'Locked' : [prog ? `${prog.down}% down · ${rec?.shots ?? 0} shot${rec?.shots === 1 ? '' : 's'}` : 'Not started', best].filter(Boolean).join(' · ');
+    const found = (rec?.found.length ?? 0);
     return h(
       'li',
       {},
@@ -119,12 +117,12 @@ export function golfHousesScreen(app: App): ScreenInstance {
         'button',
         { class: `dd-row${open ? '' : ' locked'}${current ? ' current' : ''}${rec?.done ? ' done' : ''}`, disabled: !open, 'aria-label': `House ${hd.number}, ${hd.name}, ${status}`, onClick: () => (app.play('select'), app.go('golf', { id: hd.id })) },
         h('span', { class: 'dd-row-no', text: hd.number }),
-        h('span', { class: 'dd-row-main' }, h('b', { text: hd.name }), h('small', { text: open ? objectiveText(hd.objective) : i > 0 ? `Finish ${(HOUSES[i - 1] as HouseDef).name} to open` : '' }), h('small', { class: 'dd-row-status', text: status })),
-        h('span', { class: 'dd-row-side' }, hd.unlocks && open ? h('span', { class: 'dd-swatch', title: `Brings the ${BALLS[hd.unlocks].name}`, html: ballSwatch(hd.unlocks, 22) }) : null, rec?.done ? h('span', { class: 'dd-tick', html: ICON.check }) : !open ? h('span', { class: 'icon', html: ICON.lock }) : null),
+        h('span', { class: 'dd-row-main' }, h('b', { text: hd.name }), h('small', { text: open ? `Goal ${hd.goal}% down · ${found} of ${hd.hidden} hidden balls found` : i > 0 ? `Bring ${(HOUSES[i - 1] as HouseDef).name} ${(HOUSES[i - 1] as HouseDef).goal}% down to open` : '' }), h('small', { class: 'dd-row-status', text: status })),
+        h('span', { class: 'dd-row-side' }, rec?.done ? h('span', { class: 'dd-tick', html: ICON.check }) : !open ? h('span', { class: 'icon', html: ICON.lock }) : null),
       ),
     );
   };
-  const el = h('main', { class: 'screen dd dd-page' }, pageHead(app, 'The Street'), h('p', { class: 'dd-page-lede', text: 'Each house has a weak spot. Damage stays until you come back.' }), h('ol', { class: 'dd-rows' }, ...HOUSES.map(row)));
+  const el = h('main', { class: 'screen dd dd-page' }, pageHead(app, 'The Street'), h('p', { class: 'dd-page-lede', text: 'Each house is bigger than the last. Reach the goal to open the next; fewer shots is better. Damage stays until you come back.' }), h('ol', { class: 'dd-rows' }, ...HOUSES.map(row)));
   return { el };
 }
 
@@ -212,14 +210,14 @@ export function golfSettingsScreen(app: App): ScreenInstance {
       { class: 'dd-panel' },
       toggle('Sound', 'Bricks, glass, snapping supports and collapses. Every hit is also shown on screen.', 'sound'),
       toggle('Vibration', 'Short buzzes on seam shots, supports and collapses, where the device supports it.', 'haptics'),
-      toggle('Reduce motion', 'No camera shake, no slow motion and no pulsing weak points.', 'reducedMotion'),
+      toggle('Reduce motion', 'No camera shake, no slow motion and steadier weak points.', 'reducedMotion'),
     ),
     h(
       'section',
       { class: 'dd-panel' },
       h('h3', { text: 'How to shoot' }),
-      h('p', { text: 'Press anywhere and pull back. The further you pull, the harder and higher the shot. Pull to the side to turn; move slowly for fine turns. Let go to shoot, or let go before the ring starts to fill to cancel.' }),
-      h('p', { text: 'Keyboard: left and right turn (Shift for fine), up and down set power, Space shoots, 1 to 6 pick a ball, X looks inside, Escape pauses.' }),
+      h('p', { text: 'Touch the spot you want to hit, then pull back. The further you pull, the harder the shot; the flight bends to reach your spot, so a full pull at a low brick is a flat drive and a soft one is a lob. Let go to shoot. Let go before the ring starts to fill to just move your aim.' }),
+      h('p', { text: 'Keyboard: arrows move the aim (Shift for fine), W and S set power, Space shoots, 1 to 6 pick a ball, X looks inside, Escape pauses.' }),
     ),
     h(
       'section',
