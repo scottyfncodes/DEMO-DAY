@@ -1,7 +1,8 @@
 import './styles.css';
+import './golf/ui/golf.css';
 import { App } from './app';
 import { golfPlayScreen } from './golf/ui/play';
-import { golfLevelsScreen, golfSettingsScreen, golfTitleScreen } from './golf/ui/screens';
+import { golfChallengesScreen, golfHousesScreen, golfSettingsScreen, golfTitleScreen } from './golf/ui/screens';
 import { briefScreen } from './ui/screens/brief';
 import { garageScreen } from './ui/screens/garage';
 import { jobsScreen } from './ui/screens/jobs';
@@ -16,10 +17,12 @@ if (!root) throw new Error('Missing #app root');
 const app = new App(root);
 // The golf game.
 app.register('title', golfTitleScreen);
-app.register('levels', golfLevelsScreen);
+app.register('houses', golfHousesScreen);
+app.register('challenges', golfChallengesScreen);
+app.register('levels', golfChallengesScreen);
 app.register('golf', golfPlayScreen);
 app.register('golf-settings', golfSettingsScreen);
-// The original crew-contracts game, kept whole and reachable from Levels.
+// The original crew-contracts game, kept whole and reachable from Settings.
 app.register('classic', titleScreen);
 app.register('jobs', jobsScreen);
 app.register('brief', briefScreen);

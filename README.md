@@ -1,6 +1,6 @@
 # DEMO DAY
 
-Golf-powered house demolition for the phone browser. You stand on a tee in front of a brick house with a bag of golf balls. Every brick, pane, floor, beam and roof tile is its own piece: knock bricks out one at a time, split two at once with a seam shot, send a ball in through a window to rattle round the rooms, and undercut a wall until the roof above it comes down.
+A casual demolition puzzle for the phone browser. A street of little brick houses, a tee, and a bag of golf balls. Every brick, pane, floor, beam and roof tile is its own piece: find the weak spot, take it out, and watch the rest come down. Damage stays put, so you can take a few shots, close the app, and pick up the same half-wrecked house later.
 
 **Play it:** https://scottyfncodes.github.io/DEMO-DAY/
 
@@ -8,40 +8,35 @@ Add it to your iPhone Home Screen (Share → Add to Home Screen) for full-screen
 
 ## How it plays
 
-- **Swing** with one thumb: press anywhere on the lawn and slide to aim (sideways turns the shot, up and down sets the loft). Hold your thumb still and the golfer winds up; once at the top, let go to hit it. Lifting while you are still sliding, or before the wind-up finishes, keeps the aim without swinging, so you can readjust as often as you like. Every shot is full power, so the aim is the whole game. **Zoom** halves the aim speed for fine work. On a keyboard, the arrows aim and Space swings.
-- A yellow dot marks where the ball will land first; the guide shows the start of the flight (the whole flight, and a landing ring that turns white on a seam, with Precision Mode and on the teaching levels).
-- **Bricks**: a square, hard hit breaks the brick it lands on. Land on the mortar joint between two bricks (within 4 cm, within 38° of square, hard enough for both) and both go: a **seam shot**. Old brick breaks easier; reinforced courses need the Power or Heavy ball.
-- **Windows** break at any speed and the ball carries on inside. The front of the house turns see-through while a ball is in a room, so you can follow it off the furniture, through the doorways and out the back.
-- **Structure**: bricks rest on the course below in running bond and hang sideways from their neighbours for a couple of bricks, so a small hole arches over and a wide undercut drops the wall above it. Lintels carry the wall over openings, floors bear on the front and back walls, roof sections need half the wall top under them and a ridge beam carried by the gables, the porch roof sits on a beam on two columns, and the chimney stands on its own footing. Overloaded pieces creak, then give way. Falling pieces land on, and break, what is under them.
+- **Shoot** with one thumb: press anywhere and pull back. The further you pull, the harder and higher the shot; pull to the side to turn (slowly for fine turns). The guide shows the flight to the first thing it touches and turns white on a mortar joint. Let go to shoot, or let go before the ring fills to cancel. On a keyboard, arrows aim and set power and Space shoots.
+- **Weak points** pulse yellow while you aim: the standing parts whose loss would bring the most down.
+- **Shot quality**: one headline per shot, the best thing it did: CLEAN HIT, PERFECT AIM, WINDOW ENTRY, MULTI HIT, SEAM SHOT, BANK SHOT, CHAIN REACTION, SUPPORT DOWN, HOUSE DOWN. Small hits tick, critical supports slow time, big collapses shake the lot.
+- **Special balls are earned.** Standard balls are unlimited. Skilful shots fill the reward meter, and the skill that fills it picks the ball: a seam shot pays a Power ball, a bank shot a Superball, a support a Heavy ball, a multi hit a Multiball, a chain reaction a Charge. Repeating the same easy trick is worth less each time. All numbers live in `src/golf/game/rewards.ts`.
 
 | Ball | What it does |
 | --- | --- |
-| Standard | Predictable. Breaks brick and glass; the seam-shot ball |
-| Power | Faster and heavier, punches through brick and reinforced courses. Hooks right at full power, shorter guide |
-| Superball | Keeps its bounce off every surface. Weak on brick, made for windows, rooms and bank shots |
+| Standard | Unlimited, predictable. Breaks brick and glass; the seam-shot ball |
+| Power | Faster and heavier, punches through brick and reinforced courses |
+| Superball | Keeps its bounce off every surface. Made for windows, rooms and bank shots |
 | Multiball | Five balls in a fan, each with its own flight and hits |
-| Heavy | Three times the mass on a slow, dropping flight; shoves the parts around its hit. No good for seams or ricochets |
-| Charge | A golf ball packed like a demolition charge: goes off on the first hard contact |
-
-Power-ups: **Power Drive** (faster, harder), **Ricochet Boost** (keeps more bounce for eight contacts), **Precision Mode** (three shots with the full flight path and a seam-aware landing ring), **Multi-Golfer** (three golfers fire your shot together from three tees). Consecutive scoring shots build a **streak** multiplier; a miss resets it.
-
-Birds, a squirrel and the cat get out of the way as soon as you swing. They are never targets.
+| Heavy | Three times the mass on a dropping flight; shoves supports out |
+| Charge | Goes off on the first hard contact |
 
 ## Modes
 
-- **Campaign**: ten handcrafted levels, one new idea each (bricks, seams, windows, the interior, a load-bearing porch, ricochet chains, the garden, the chimney, the roof, and the whole house). Stars for finishing at or under par.
-- **Score Attack**: eight shots, bronze, silver and gold.
-- **Precision Challenges**: in one side and out the other, the trophy upstairs, the grandfather clock.
-- **Daily Challenge**: one layout per calendar day, built from the date, scored on this device.
-- **Sandbox**: every ball and power-up you have met, no budget.
-- **Crew Contracts**: the original machine-and-moves Demo Day (crane, charges, excavator, dozer, loader), kept whole under Levels with its own save.
+- **Play**: ten houses, each with one structural idea and one objective (break bricks, drop the porch, smash windows, undercut the front wall, collapse a floor, cut the chimney, crack reinforced footing, raise the roof, the load-bearing corners, the whole house). No shot limit. Finishing opens the next house and pays out specials; a finished house can still be played or rebuilt.
+- **Daily Demo**: one house per date, the same on every device. Eight shots, scored on damage and skill, with your recent days kept on this device.
+- **Sandbox**: every special ball, unlimited.
+- **Challenges**: the original ten trick-shot levels, the precision shots and Score Attack, with shot limits, stars and medals.
+- **Crew Contracts**: the original machine-and-moves Demo Day, kept whole under Settings with its own save.
 
 ## How it is built
 
-- **Simulation** (`src/golf/sim/`): deterministic and fixed-step (120 Hz). `house.ts` lays out the house brick by brick on a 0.3 m grid with openings, lintels, floors, partitions, stairs, roof decks and tiles, chimney, porch, furniture and garden, and links what rests on what. `world.ts` flies the balls (sub-stepped sphere-vs-box, so nothing tunnels), resolves damage and seam shots, solves support and load, and drops loose parts as tumbling debris that lands on rubble. `session.ts` is the shot budget, ammo, power-ups, scoring and objectives, read only from simulation events. `levels.ts` holds every level as data.
+- **Game layer** (`src/golf/game/`): pull-back controls, shot quality, the reward economy and the campaign houses, all pure and tested. See `docs/PUZZLE_PLAN.md`.
+- **Simulation** (`src/golf/sim/`): deterministic and fixed-step (120 Hz). A settled world snapshots to a compact list of what changed (`World.snapshot()` / `restore()`), which is how houses keep their damage. `house.ts` lays out the house brick by brick on a 0.3 m grid with openings, lintels, floors, partitions, stairs, roof decks and tiles, chimney, porch, furniture and garden, and links what rests on what. `world.ts` flies the balls (sub-stepped sphere-vs-box, so nothing tunnels), resolves damage and seam shots, solves support and load, and drops loose parts as tumbling debris that lands on rubble. `session.ts` is the shot budget, ammo, power-ups, scoring and objectives, read only from simulation events. `levels.ts` holds every level as data.
 - **Rendering** (`src/golf/render/`): three.js. Bricks and other box parts are instanced (one draw call per size and material), furniture and garden pieces are merged single meshes, effects are pooled. Nothing in the renderer writes to the simulation.
 - **UI** (`src/golf/ui/`): plain DOM over the canvas, touch first, safe-area aware.
-- **Save**: golf progress is stored under its own key (`demo-day:golf`); the Crew Contracts save (`demo-day:save`) is never read, changed or reset by the golf game.
+- **Save**: progress is stored under its own key (`demo-day:golf`, version 2, migrated in place from version 1) and each house's damage under `demo-day:golf:house:<id>`; the Crew Contracts save (`demo-day:save`) is never read, changed or reset by the golf game.
 - Procedural Web Audio sound. PWA manifest and service worker.
 
 ## Development
@@ -49,7 +44,7 @@ Birds, a squirrel and the cat get out of the way as soon as you swing. They are 
 ```sh
 pnpm install
 pnpm dev          # local dev server
-pnpm test         # vitest: physics, seams, structure, scoring, saves, and every level replayed to its par
+pnpm test         # vitest: physics, structure, controls, rewards, saves, every house finished with the real controls, every challenge at par
 pnpm typecheck    # tsc --noEmit
 pnpm build        # production build to dist/
 pnpm check        # all three

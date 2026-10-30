@@ -31,6 +31,8 @@ export interface ViewState {
   zoom: boolean;
   /** Parts to mark with a pin (objective targets). */
   pins: number[];
+  /** Weak points: standing parts whose loss would bring a lot down. They pulse while aiming. */
+  weak?: number[];
 }
 
 interface Inst {
@@ -45,6 +47,8 @@ const tmpV = new THREE.Vector3();
 const tmpS = new THREE.Vector3();
 const tmpC = new THREE.Color();
 const X_AXIS = new THREE.Vector3(1, 0, 0);
+const WHITE_HOT = new THREE.Color(0xfff6dc);
+const WEAK = new THREE.Color(0xffc21a);
 
 function ballTexture(base: number, accent: number): THREE.CanvasTexture {
   const c = document.createElement('canvas');
@@ -104,6 +108,8 @@ export class GolfRenderer {
   private squirrel: { g: THREE.Group; fled: boolean; t: number; home: THREE.Vector3; tree: THREE.Vector3 } | null = null;
   private cat: { g: THREE.Group; fled: boolean; t: number } | null = null;
   private pins: THREE.Mesh[] = [];
+  private weak: number[] = [];
+  private weakGlow = 0;
   private sun: THREE.DirectionalLight;
   private time = 0;
   private camPos = new THREE.Vector3();
@@ -238,6 +244,32 @@ export class GolfRenderer {
     this.camInit = false;
     this.buildHouse();
     this.buildCritters();
+    // A restored house: hide what is gone, darken and loosen what is damaged. Rubble is placed by update().
+    for (const p of world.parts) {
+      if (p.state === PartState.Gone) {
+        this.hide(p);
+        this.finalDone.add(p.id);
+      } else if (p.state === PartState.Intact && Number.isFinite(p.hp0) && p.hp < p.hp0) {
+        this.setTint(p);
+        this.loosen(p);
+      }
+    }
+  }
+
+  /** A damaged part sits a little crooked in its course: cracking before it breaks. */
+  private loosen(p: Part): void {
+    const i = this.inst[p.id];
+    if (!i || p.rot !== 0 || !Number.isFinite(p.hp0)) return;
+    const dmg = Math.max(0, Math.min(1, 1 - p.hp / p.hp0));
+    // Deterministic per part, so a restored house looks the same as it did.
+    const sign = p.id % 2 ? 1 : -1;
+    const tilt = dmg * 0.07 * sign;
+    tmpQ.setFromAxisAngle(tmpV.set(p.wall === 'left' || p.wall === 'right' ? 1 : 0, 0, p.wall === 'left' || p.wall === 'right' ? 0 : 1), tilt);
+    const nx = p.wall === 'left' ? 1 : p.wall === 'right' ? -1 : 0;
+    const nz = p.wall === 'front' ? -1 : p.wall === 'back' ? 1 : 0;
+    tmpM.compose(tmpV.set(p.x + nx * dmg * 0.025, p.y - dmg * 0.012, p.z + nz * dmg * 0.025), tmpQ, tmpS.set(1, 1, 1));
+    i.mesh.setMatrixAt(i.index, tmpM);
+    i.mesh.instanceMatrix.needsUpdate = true;
   }
 
   private isGhost(p: Part): boolean {
@@ -364,6 +396,7 @@ export class GolfRenderer {
           if (!e.broke && p.state === PartState.Intact) {
             this.flashes.set(p.id, 0.14);
             this.setTint(p);
+            this.loosen(p);
           }
           const m = MATERIALS[p.mat];
           this.fx.burst(m.debris, e.x, e.y, e.z, e.broke ? 3 : 4, 2.2, 0.045);
@@ -435,7 +468,8 @@ export class GolfRenderer {
     tmpC.setHex(p.kind === 'glass' ? 0xcbe9f5 : base);
     if (Number.isFinite(p.hp0) && p.hp < p.hp0) tmpC.multiplyScalar(0.62 + 0.38 * Math.max(0, p.hp / p.hp0));
     const f = this.flashes.get(p.id);
-    if (f && f > 0) tmpC.lerp(new THREE.Color(0xfff6dc), Math.min(1, f * 5));
+    if (f && f > 0) tmpC.lerp(WHITE_HOT, Math.min(1, f * 5));
+    if (this.weakGlow > 0 && this.weak.includes(p.id)) tmpC.lerp(WEAK, this.weakGlow * (0.3 + 0.25 * Math.sin(this.time * 3.2)));
     i.mesh.setColorAt(i.index, tmpC);
     if (i.mesh.instanceColor) i.mesh.instanceColor.needsUpdate = true;
   }
@@ -504,6 +538,25 @@ export class GolfRenderer {
       else this.flashes.set(id, nt);
       const p = P[id] as Part;
       if (p.state === PartState.Intact) this.setTint(p);
+    }
+
+    // Weak points pulse a warm yellow while aiming, and fade when the shot is away.
+    const aimingNow = view.phase === 'aim';
+    const nextWeak = view.weak ?? [];
+    if (nextWeak.join() !== this.weak.join()) {
+      const old = this.weak;
+      this.weak = nextWeak.slice();
+      for (const id of old) {
+        const p = P[id];
+        if (p && p.state === PartState.Intact) this.setTint(p);
+      }
+    }
+    this.weakGlow += ((aimingNow && !this.reducedMotion ? 1 : aimingNow ? 0.7 : 0) - this.weakGlow) * Math.min(1, dt * 4);
+    if (this.weak.length) {
+      for (const id of this.weak) {
+        const p = P[id];
+        if (p && p.state === PartState.Intact) this.setTint(p);
+      }
     }
 
     // Balls and trails.
@@ -774,9 +827,10 @@ export class GolfRenderer {
     const aspect = this.width / Math.max(1, this.height);
     // Over the golfer's shoulder, the whole house across the screen. Zoom moves up to the front wall.
     const portrait = aspect < 0.9;
-    const pos = zoom ? new THREE.Vector3(0.8, 3.1, 10.5) : new THREE.Vector3(portrait ? 0.2 : 1.0, portrait ? 3.9 : 3.4, info.tee.z + (portrait ? 6.9 : 6));
+    const tx = info.tee.x * 0.7;
+    const pos = zoom ? new THREE.Vector3(0.8 + tx * 0.5, 3.1, 10.5) : new THREE.Vector3((portrait ? 0.2 : 1.0) + tx, portrait ? 3.9 : 3.4, info.tee.z + (portrait ? 6.9 : 6));
     // Tilted down a little so the golfer and the tee sit in the foreground, the house above them.
-    const look = zoom ? new THREE.Vector3(0.3, 2.6, 0) : new THREE.Vector3(0.3, portrait ? 1.0 : info.ridgeY * 0.42, -2);
+    const look = zoom ? new THREE.Vector3(0.3 + tx * 0.3, 2.6, 0) : new THREE.Vector3(0.3 + tx * 0.4, portrait ? 1.0 : info.ridgeY * 0.42, -2);
     const halfW = zoom ? 4.9 : 6.4;
     const dist = pos.distanceTo(look);
     const hfov = 2 * Math.atan(halfW / dist);

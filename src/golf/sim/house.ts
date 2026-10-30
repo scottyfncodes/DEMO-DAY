@@ -53,6 +53,8 @@ export interface HouseSpec {
   zones?: Zone[];
   palette: Palette;
   furnish: boolean;
+  /** Tee position across the lot (default 0, in line with the front door). */
+  teeX?: number;
 }
 
 export type DecorModel = 'gnome' | 'flamingo' | 'mailbox' | 'birdbath' | 'pot' | 'light' | 'bench' | 'lawnchair';
@@ -760,7 +762,7 @@ export function buildLevel(spec: HouseSpec, yard: YardSpec): { parts: Part[]; in
     interior: { minX: inX0, maxX: inX1, minY: FOUNDATION_TOP - 0.05, maxY: ridgeY, minZ: inZ0, maxZ: inZ1 },
     rooms,
     doorX,
-    tee: { x: 0, y: 0, z: 20 },
+    tee: { x: spec.teeX ?? 0, y: 0, z: 20 },
     perches: [-2.6, -0.4, 1.9, 3.1].map((x) => ({ x, y: ridgeY + 0.22, z: -D / 2 })),
     paving: [{ minX: doorX - 0.7, maxX: doorX + 0.7, minZ: 2.1, maxZ: 17 }],
     bounds: { minX: -16, maxX: 16, minY: -1, maxY: 40, minZ: -15, maxZ: 28 },

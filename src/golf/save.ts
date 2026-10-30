@@ -1,16 +1,44 @@
 import { pickStorage, type StorageLike } from '../game/save';
+import { HOUSES, unlockedAt, type HouseDef } from './game/houses';
+import { REWARD, SPECIALS, emptyEconomy, type Economy, type SpecialId } from './game/rewards';
+import { TAG_ORDER, type ShotTag } from './game/quality';
 import type { BallId } from './sim/balls';
 import { CAMPAIGN, type LevelDef } from './sim/levels';
+import type { WorldSnapshot } from './sim/world';
 
 /**
  * Golf progress, stored under its own key so the crew-contracts save is
  * never read, changed or reset by the golf game. Validated field by field
  * on load; a bad save falls back to a fresh one without losing the old text
  * (it is only overwritten once there is real progress to keep).
+ *
+ * Version 2 adds the PLAY campaign: which houses are open and finished, the
+ * special ball economy, and each house's damage, stored as a world snapshot
+ * under its own key so a large house never risks the main save.
  */
 
 export const GOLF_SAVE_KEY = 'demo-day:golf';
-export const GOLF_SAVE_VERSION = 1;
+export const GOLF_SAVE_VERSION = 2;
+export const houseKey = (id: string): string => `${GOLF_SAVE_KEY}:house:${id}`;
+
+export interface HouseRecord {
+  /** Shots taken on this house, across sessions. */
+  shots: number;
+  /** The objective has been met. */
+  done: boolean;
+  /** Shots it took to meet the objective (0 = not yet). */
+  doneIn: number;
+  /** The arrival gift for this house has been paid. */
+  gifted: boolean;
+}
+
+export interface CampaignSave {
+  /** House the player is on. */
+  current: string;
+  /** Index of the furthest open house. */
+  reached: number;
+  houses: Record<string, HouseRecord>;
+}
 
 export interface LevelRecord {
   attempts: number;
@@ -28,10 +56,16 @@ export interface GolfSave {
   daily: Record<string, LevelRecord>;
   /** Coach marks on the first level have been completed. */
   coached: boolean;
+  campaign: CampaignSave;
+  economy: Economy;
 }
 
 export function defaultGolfSave(): GolfSave {
-  return { version: GOLF_SAVE_VERSION, levels: {}, daily: {}, coached: false };
+  return { version: GOLF_SAVE_VERSION, levels: {}, daily: {}, coached: false, campaign: { current: (HOUSES[0] as HouseDef).id, reached: 0, houses: {} }, economy: emptyEconomy() };
+}
+
+export function emptyHouseRecord(): HouseRecord {
+  return { shots: 0, done: false, doneIn: 0, gifted: false };
 }
 
 export function emptyLevelRecord(): LevelRecord {
@@ -60,6 +94,39 @@ export function normalizeGolfSave(raw: unknown): GolfSave | null {
     }
   }
   out.coached = o.coached === true;
+  const version = num(o.version, 1);
+  const camp = o.campaign && typeof o.campaign === 'object' ? (o.campaign as Record<string, unknown>) : null;
+  if (camp) {
+    out.campaign.reached = Math.min(HOUSES.length - 1, Math.floor(num(camp.reached)));
+    const houses = camp.houses && typeof camp.houses === 'object' ? (camp.houses as Record<string, unknown>) : {};
+    for (const h of HOUSES) {
+      const r = houses[h.id];
+      if (!r || typeof r !== 'object') continue;
+      const q = r as Record<string, unknown>;
+      out.campaign.houses[h.id] = { shots: Math.floor(num(q.shots)), done: q.done === true, doneIn: Math.floor(num(q.doneIn)), gifted: q.gifted === true };
+    }
+    if (typeof camp.current === 'string' && HOUSES.some((h, i) => h.id === camp.current && i <= out.campaign.reached)) out.campaign.current = camp.current;
+    else out.campaign.current = (HOUSES[out.campaign.reached] as HouseDef).id;
+  } else if (version < 2) {
+    // From v1: every old campaign level finished opens one more house, so nobody starts over.
+    const finished = CAMPAIGN.filter((l) => (out.levels[l.id]?.completions ?? 0) > 0).length;
+    out.campaign.reached = Math.min(HOUSES.length - 1, finished);
+    out.campaign.current = (HOUSES[out.campaign.reached] as HouseDef).id;
+  }
+  const eco = o.economy && typeof o.economy === 'object' ? (o.economy as Record<string, unknown>) : null;
+  if (eco) {
+    out.economy.meter = Math.min(REWARD.meterSize, num(eco.meter));
+    const inv = eco.inventory && typeof eco.inventory === 'object' ? (eco.inventory as Record<string, unknown>) : {};
+    for (const b of SPECIALS) {
+      const n = Math.min(REWARD.cap, Math.floor(num(inv[b])));
+      if (n > 0) out.economy.inventory[b] = n;
+    }
+    const fat = eco.fatigue && typeof eco.fatigue === 'object' ? (eco.fatigue as Record<string, unknown>) : {};
+    for (const t of TAG_ORDER) {
+      const n = Math.min(20, num(fat[t]));
+      if (n > 0) out.economy.fatigue[t as ShotTag] = n;
+    }
+  }
   return out;
 }
 
@@ -88,7 +155,102 @@ export class GolfStore {
   }
 
   reset(): void {
+    for (const h of HOUSES) this.clearHouse(h.id);
     this.data = defaultGolfSave();
+    this.save();
+  }
+
+  // ------------------------------------------------------------ campaign
+
+  houseRec(id: string): HouseRecord {
+    let r = this.data.campaign.houses[id];
+    if (!r) this.data.campaign.houses[id] = r = emptyHouseRecord();
+    return r;
+  }
+
+  houseIndex(id: string): number {
+    return HOUSES.findIndex((h) => h.id === id);
+  }
+
+  houseOpen(id: string): boolean {
+    const i = this.houseIndex(id);
+    return i >= 0 && i <= this.data.campaign.reached;
+  }
+
+  get currentHouse(): HouseDef {
+    return HOUSES.find((h) => h.id === this.data.campaign.current) ?? (HOUSES[0] as HouseDef);
+  }
+
+  /** Specials the reward meter can pay out so far. */
+  unlockedSpecials(): SpecialId[] {
+    return unlockedAt(this.data.campaign.reached);
+  }
+
+  /** Adds specials to the inventory, up to the carry limit. */
+  grant(balls: Partial<Record<SpecialId, number>>): void {
+    const inv = this.data.economy.inventory;
+    for (const [b, n] of Object.entries(balls) as Array<[SpecialId, number]>) inv[b] = Math.min(REWARD.cap, (inv[b] ?? 0) + n);
+  }
+
+  /** Arriving at a house: makes it current and pays its introduction gift once. Returns the gift. */
+  enterHouse(h: HouseDef): Partial<Record<SpecialId, number>> {
+    this.data.campaign.current = h.id;
+    const rec = this.houseRec(h.id);
+    let gift: Partial<Record<SpecialId, number>> = {};
+    if (!rec.gifted) {
+      rec.gifted = true;
+      if (h.unlocks) gift = { [h.unlocks]: 2 };
+      this.grant(gift);
+    }
+    this.save();
+    return gift;
+  }
+
+  /** Finishing a house: pays the prize, opens the next one. Returns the next house, if any. */
+  completeHouse(h: HouseDef): HouseDef | undefined {
+    const rec = this.houseRec(h.id);
+    if (!rec.done) {
+      rec.done = true;
+      rec.doneIn = rec.shots;
+      this.grant(h.prize);
+    }
+    const i = this.houseIndex(h.id);
+    this.data.campaign.reached = Math.max(this.data.campaign.reached, Math.min(HOUSES.length - 1, i + 1));
+    this.save();
+    return HOUSES[i + 1];
+  }
+
+  saveHouse(id: string, snap: WorldSnapshot): boolean {
+    try {
+      this.storage.setItem(houseKey(id), JSON.stringify(snap));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  loadHouse(id: string): WorldSnapshot | null {
+    try {
+      const text = this.storage.getItem(houseKey(id));
+      return text ? (JSON.parse(text) as WorldSnapshot) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  clearHouse(id: string): void {
+    try {
+      this.storage.removeItem(houseKey(id));
+    } catch {
+      // Nothing to clear.
+    }
+  }
+
+  /** Puts a finished house back up to play it again from scratch. */
+  rebuildHouse(id: string): void {
+    this.clearHouse(id);
+    const rec = this.houseRec(id);
+    rec.shots = 0;
     this.save();
   }
 

@@ -154,6 +154,29 @@ export interface SeamInfo {
   dist: number;
 }
 
+/**
+ * A settled world, compact enough for localStorage: only what differs from a
+ * freshly built house of the same spec. Numbers are flattened into arrays.
+ */
+export interface WorldSnapshot {
+  v: 1;
+  /** Part count of the house it came from (a different house refuses it). */
+  n: number;
+  time: number;
+  rng: number;
+  ball: number;
+  /** [id, state, hp] for every part that is not a fresh, intact part. */
+  parts: number[];
+  /** [id, x, y, z, qx, qy, qz, qw, restOn] for every piece of rubble. */
+  rubble: number[];
+  /** [cell, height] for every raised cell of the rubble heightfield. */
+  heights: number[];
+}
+
+const SNAP_PART = 3;
+const SNAP_RUBBLE = 9;
+const round = (v: number, k: number): number => Math.round(v * k) / k;
+
 const CELL = 1;
 const key = (ix: number, iy: number, iz: number): number => ((ix + 64) * 128 + (iy + 8)) * 128 + (iz + 64);
 
@@ -693,59 +716,9 @@ export class World {
     this.dirty = false;
     const P = this.parts;
     const N = P.length;
-    const INF = 1 << 20;
-    const cost = new Int32Array(N).fill(INF);
+    const INF = STAND_INF;
+    const cost = this.standCost();
     const isUp = (i: number): boolean => (P[i] as Part).state === PartState.Intact && (cost[i] as number) <= (P[i] as Part).span;
-    for (let i = 0; i < N; i++) {
-      const p = P[i] as Part;
-      if (p.state === PartState.Intact && p.groups.length === 0) cost[i] = 0;
-    }
-    const evalCost = (p: Part): number => {
-      let cv = INF;
-      if (p.groups.length) {
-        cv = 0;
-        for (let gi = 0; gi < p.groups.length; gi++) {
-          const g = p.groups[gi] as number[];
-          const need = p.need?.[gi] ?? 1;
-          // Masonry inherits the weakest standing support under it, so an undercut column stays
-          // undercut all the way up; everything else only needs its supports to be standing.
-          let best = INF;
-          let worst = 0;
-          let up = 0;
-          for (const m of g) {
-            if (!isUp(m)) continue;
-            up++;
-            const c = cost[m] as number;
-            if (c < best) best = c;
-            if (c > worst) worst = c;
-          }
-          if (best >= INF || up < need) {
-            cv = INF;
-            break;
-          }
-          if (p.bond && worst > cv) cv = worst;
-        }
-      }
-      let cl = INF;
-      for (const m of p.lateral) if (isUp(m) && (cost[m] as number) + 1 < cl) cl = (cost[m] as number) + 1;
-      const c = Math.min(cv, cl);
-      return c <= p.span ? c : INF;
-    };
-    // Every rule above is monotone, so sweeping in support order from "nothing stands" settles on
-    // the right answer; sideways hangs need a few sweeps to spread along a course.
-    for (let sweep = 0; sweep < 40; sweep++) {
-      let changed = false;
-      for (const i of this.supportOrder) {
-        const p = P[i] as Part;
-        if (p.state !== PartState.Intact || p.groups.length === 0) continue;
-        const c = evalCost(p);
-        if (c !== cost[i]) {
-          cost[i] = c;
-          changed = true;
-        }
-      }
-      if (!changed) break;
-    }
 
     // Loads: each standing part passes its weight (plus what it carries) to whatever holds it up.
     const parents: number[][] = new Array(N);
@@ -858,6 +831,69 @@ export class World {
       const n = fallen.length;
       this.events.push({ t: 'collapse', count: n, x: sx / n, y: sy / n, z: sz / n, roof, floor });
     }
+  }
+
+  /**
+   * Sideways-hang cost of every part: 0 on the ground, up to its span when it
+   * hangs from neighbours, STAND_INF when nothing holds it.
+   */
+  private standCost(): Int32Array {
+    const P = this.parts;
+    const N = P.length;
+    const INF = STAND_INF;
+    const cost = new Int32Array(N).fill(INF);
+    const isUp = (i: number): boolean => (P[i] as Part).state === PartState.Intact && (cost[i] as number) <= (P[i] as Part).span;
+    for (let i = 0; i < N; i++) {
+      const p = P[i] as Part;
+      if (p.state === PartState.Intact && p.groups.length === 0) cost[i] = 0;
+    }
+    const evalCost = (p: Part): number => {
+      let cv = INF;
+      if (p.groups.length) {
+        cv = 0;
+        for (let gi = 0; gi < p.groups.length; gi++) {
+          const g = p.groups[gi] as number[];
+          const need = p.need?.[gi] ?? 1;
+          // Masonry inherits the weakest standing support under it, so an undercut column stays
+          // undercut all the way up; everything else only needs its supports to be standing.
+          let best = INF;
+          let worst = 0;
+          let up = 0;
+          for (const m of g) {
+            if (!isUp(m)) continue;
+            up++;
+            const c = cost[m] as number;
+            if (c < best) best = c;
+            if (c > worst) worst = c;
+          }
+          if (best >= INF || up < need) {
+            cv = INF;
+            break;
+          }
+          if (p.bond && worst > cv) cv = worst;
+        }
+      }
+      let cl = INF;
+      for (const m of p.lateral) if (isUp(m) && (cost[m] as number) + 1 < cl) cl = (cost[m] as number) + 1;
+      const c = Math.min(cv, cl);
+      return c <= p.span ? c : INF;
+    };
+    // Every rule above is monotone, so sweeping in support order from "nothing stands" settles on
+    // the right answer; sideways hangs need a few sweeps to spread along a course.
+    for (let sweep = 0; sweep < 40; sweep++) {
+      let changed = false;
+      for (const i of this.supportOrder) {
+        const p = P[i] as Part;
+        if (p.state !== PartState.Intact || p.groups.length === 0) continue;
+        const c = evalCost(p);
+        if (c !== cost[i]) {
+          cost[i] = c;
+          changed = true;
+        }
+      }
+      if (!changed) break;
+    }
+    return cost;
   }
 
   // ---------------------------------------------------------------- debris
@@ -1117,6 +1153,134 @@ export class World {
     }
   }
 
+  // ----------------------------------------------------------- save/load
+
+  /** Captures a settled world. Anything still moving is put to rest first. */
+  snapshot(): WorldSnapshot {
+    if (!this.settled) this.runUntilSettled(8);
+    const parts: number[] = [];
+    const rubble: number[] = [];
+    for (const p of this.parts) {
+      const fresh = p.state === PartState.Intact && (p.hp === p.hp0 || !Number.isFinite(p.hp0));
+      if (fresh) continue;
+      const state = p.state === PartState.Falling ? PartState.Rubble : p.state;
+      parts.push(p.id, state, Number.isFinite(p.hp) ? round(p.hp, 1000) : -1);
+      if (state !== PartState.Rubble) continue;
+      const d = this.debrisIndex.get(p.id);
+      if (!d) continue;
+      rubble.push(p.id, round(d.x, 1000), round(d.y, 1000), round(d.z, 1000), round(d.qx, 10000), round(d.qy, 10000), round(d.qz, 10000), round(d.qw, 10000), d.restOn);
+    }
+    const heights: number[] = [];
+    for (let i = 0; i < this.heights.length; i++) {
+      const v = this.heights[i] as number;
+      if (v > 0) heights.push(i, round(v, 1000));
+    }
+    return { v: 1, n: this.parts.length, time: round(this.time, 1000), rng: this.rng.state >>> 0, ball: this.nextBall, parts, rubble, heights };
+  }
+
+  /**
+   * Puts a snapshot back on a freshly built world of the same house. Returns
+   * false (and leaves the world fresh) if the snapshot does not fit it.
+   */
+  restore(snap: WorldSnapshot): boolean {
+    if (!validSnapshot(snap, this.parts.length)) return false;
+    for (let i = 0; i < snap.parts.length; i += SNAP_PART) {
+      const p = this.parts[snap.parts[i] as number] as Part;
+      const state = snap.parts[i + 1] as number;
+      const hp = snap.parts[i + 2] as number;
+      p.state = state as PartState;
+      if (Number.isFinite(p.hp0)) p.hp = state === PartState.Intact ? Math.min(p.hp0, Math.max(0.001, hp)) : 0;
+    }
+    for (let i = 0; i < snap.rubble.length; i += SNAP_RUBBLE) {
+      const id = snap.rubble[i] as number;
+      const p = this.parts[id] as Part;
+      if (p.state !== PartState.Rubble) continue;
+      const r = (k: number): number => snap.rubble[i + k] as number;
+      const ql = Math.hypot(r(4), r(5), r(6), r(7)) || 1;
+      const d: Debris = { part: id, x: r(1), y: r(2), z: r(3), vx: 0, vy: 0, vz: 0, qx: r(4) / ql, qy: r(5) / ql, qz: r(6) / ql, qw: r(7) / ql, wx: 0, wy: 0, wz: 0, mass: Math.max(0.2, p.weight), age: 0, still: 0, ex: p.hx, ey: p.hy, ez: p.hz, restOn: r(8), asleep: true };
+      this.updateExtents(d);
+      this.debris.push(d);
+      this.debrisIndex.set(id, d);
+      if (d.restOn >= 0) {
+        let list = this.resting.get(d.restOn);
+        if (!list) this.resting.set(d.restOn, (list = []));
+        list.push(id);
+      }
+    }
+    // Rubble without a pose (should not happen) is treated as cleared away.
+    for (const p of this.parts) if (p.state === PartState.Rubble && !this.debrisIndex.has(p.id)) p.state = PartState.Gone;
+    for (let i = 0; i < snap.heights.length; i += 2) this.heights[snap.heights[i] as number] = snap.heights[i + 1] as number;
+    this.time = snap.time;
+    this.rng.state = snap.rng;
+    this.nextBall = Math.max(1, snap.ball);
+    this.solve(true);
+    this.pending.clear();
+    for (const d of this.debris) if (!d.asleep) this.sleep(d);
+    this.events = [];
+    return true;
+  }
+
+  // ------------------------------------------------------------ weak points
+
+  /**
+   * How many standing house parts would lose their support if these parts
+   * went, without changing anything. Used to point out weak points.
+   */
+  fallIfRemoved(ids: number[]): { count: number; weight: number } {
+    const P = this.parts;
+    const saved = ids.map((id) => (P[id] as Part).state);
+    for (const id of ids) (P[id] as Part).state = PartState.Gone;
+    const cost = this.standCost();
+    for (let k = 0; k < ids.length; k++) (P[ids[k] as number] as Part).state = saved[k] as PartState;
+    let count = 0;
+    let weight = 0;
+    for (let i = 0; i < P.length; i++) {
+      const p = P[i] as Part;
+      if (p.state !== PartState.Intact || !p.house || ids.includes(i)) continue;
+      if ((cost[i] as number) >= STAND_INF) {
+        count++;
+        weight += scoreWeight(p);
+      }
+    }
+    return { count, weight };
+  }
+
+  /**
+   * Standing parts whose loss would bring the most down: supports, chimney
+   * footings, and the bricks at the edge of holes. Strongest first.
+   */
+  weakPoints(max = 3, minFall = 6, minWeight = 4): Array<{ part: number; count: number }> {
+    const P = this.parts;
+    const cands: Part[] = [];
+    const seen = new Set<number>();
+    const add = (p: Part): void => {
+      if (seen.has(p.id) || p.state !== PartState.Intact || !p.solid || !Number.isFinite(p.hp0)) return;
+      seen.add(p.id);
+      cands.push(p);
+    };
+    for (const p of P) if (p.house && (p.kind === 'column' || p.kind === 'lintel' || (p.kind === 'beam' && p.tags.includes('support')))) add(p);
+    const chimney = P.filter((p) => p.tags.includes('chimney') && p.kind === 'brick' && p.state === PartState.Intact).sort((a, b) => a.y - b.y);
+    for (const p of chimney.slice(0, 2)) add(p);
+    // Bricks beside a hole: the next ones to knock out to widen it.
+    let edge = 0;
+    for (const p of P) {
+      if (edge >= 36) break;
+      if (p.state !== PartState.Intact || p.kind !== 'brick' || !p.wall) continue;
+      if (p.lateral.some((q) => (P[q] as Part).state !== PartState.Intact) || p.groups.some((g) => g.some((q) => (P[q] as Part).state !== PartState.Intact))) {
+        add(p);
+        edge++;
+      }
+    }
+    const out: Array<{ part: number; count: number; weight: number }> = [];
+    for (const p of cands) {
+      const f = this.fallIfRemoved([p.id]);
+      // Many pieces, or a few heavy ones (a porch roof, a floor).
+      if (f.count >= minFall || f.weight >= minWeight) out.push({ part: p.id, count: f.count, weight: f.weight });
+    }
+    out.sort((a, b) => b.weight - a.weight || a.part - b.part);
+    return out.slice(0, max).map(({ part, count }) => ({ part, count }));
+  }
+
   // ---------------------------------------------------------- measurement
 
   /** Share of the house (by weight) that has broken or fallen, 0..1. */
@@ -1169,6 +1333,30 @@ function supportOrder(parts: Part[]): number[] {
     }
   }
   return parts.map((p) => p.id).sort((a, b) => (depth[a] as number) - (depth[b] as number) || a - b);
+}
+
+const STAND_INF = 1 << 20;
+
+function validSnapshot(s: WorldSnapshot, n: number): boolean {
+  if (!s || typeof s !== 'object' || s.v !== 1 || s.n !== n) return false;
+  const nums = (a: unknown, stride: number): a is number[] => Array.isArray(a) && a.length % stride === 0 && a.every((x) => typeof x === 'number' && Number.isFinite(x));
+  if (!nums(s.parts, SNAP_PART) || !nums(s.rubble, SNAP_RUBBLE) || !nums(s.heights, 2)) return false;
+  if (![s.time, s.rng, s.ball].every((x) => typeof x === 'number' && Number.isFinite(x))) return false;
+  for (let i = 0; i < s.parts.length; i += SNAP_PART) {
+    const id = s.parts[i] as number;
+    const st = s.parts[i + 1] as number;
+    if (!Number.isInteger(id) || id < 0 || id >= n || ![0, 2, 3].includes(st)) return false;
+  }
+  for (let i = 0; i < s.rubble.length; i += SNAP_RUBBLE) {
+    const id = s.rubble[i] as number;
+    const on = s.rubble[i + 8] as number;
+    if (!Number.isInteger(id) || id < 0 || id >= n || !Number.isInteger(on) || on < -1 || on >= n) return false;
+  }
+  for (let i = 0; i < s.heights.length; i += 2) {
+    const k = s.heights[i] as number;
+    if (!Number.isInteger(k) || k < 0 || k >= HF_NX * HF_NZ) return false;
+  }
+  return true;
 }
 
 /** Fresh read of a part's state (calls in between can change it). */

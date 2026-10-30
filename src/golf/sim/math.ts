@@ -28,6 +28,13 @@ export class Rng {
   range(a: number, b: number): number {
     return a + (b - a) * this.next();
   }
+  /** The generator's position, so a saved world carries on exactly where it stopped. */
+  get state(): number {
+    return this.s;
+  }
+  set state(v: number) {
+    this.s = v >>> 0 || 1;
+  }
 }
 
 /** Stable string hash (FNV-1a), used to seed daily challenges. */
