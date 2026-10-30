@@ -172,7 +172,7 @@
   position: absolute;
   left: calc(var(--sl) + 10px);
   right: calc(var(--sr) + 10px);
-  bottom: calc(var(--sb) + 10px);
+  bottom: calc(var(--sb) + var(--lift, 0px) + 10px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -546,7 +546,7 @@
 .dd-banner {
   position: absolute;
   left: 50%;
-  bottom: calc(var(--sb) + 150px);
+  bottom: calc(var(--sb) + var(--lift, 0px) + 150px);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -919,6 +919,13 @@
   background: #9fd0f0;
 }
 
+@media (display-mode: standalone) {
+  .dd-title {
+    bottom: auto;
+    height: var(--screen-h, 100lvh);
+  }
+}
+
 .dd-title-head {
   position: absolute;
   top: calc(var(--st) + 14px);
@@ -949,7 +956,7 @@
 .dd-title-panel {
   position: absolute;
   left: 50%;
-  bottom: calc(var(--sb) + 14px);
+  bottom: calc(var(--sb) + var(--lift, 0px) + 14px);
   transform: translateX(-50%);
   width: min(calc(100% - 28px - var(--sl) - var(--sr)), 440px);
   display: flex;
@@ -1290,4 +1297,12 @@
     transform: translateX(-50%);
     width: 460px;
   }
+}
+
+/* Behind the game, the page is lawn: any strip the device leaves below the layer reads as grass. */
+html:has(.golf-play),
+html:has(.dd-title),
+html:has(.golf-play) body,
+html:has(.dd-title) body {
+  background: #6e9f45;
 }

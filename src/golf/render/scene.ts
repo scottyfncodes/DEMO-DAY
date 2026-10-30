@@ -423,6 +423,15 @@ export class GolfRenderer {
           this.fx.burst(m.debris, e.x, e.y, e.z, p.kind === 'glass' ? 22 : n, p.kind === 'glass' ? 3.4 : 2.6, p.kind === 'glass' ? 0.07 : Math.min(0.14, size * 0.35), undefined, tint);
           if (m.debris === 'brick' || m.debris === 'dust' || m.debris === 'tile') this.fx.puff(e.x, e.y, e.z, 2, 0.5 + size * 0.5, 0.5);
           if (e.cause === 'overload') this.fx.shake = Math.max(this.fx.shake, 0.2);
+          if (p.kind === 'deck' || p.kind === 'floor') {
+            // A roof section or floor splinters along its length, in a cloud of dust.
+            for (let k = -1; k <= 1; k++) {
+              const ox = k * p.hx * 0.7;
+              this.fx.burst('wood', e.x + ox, e.y, e.z, 10, 3, 0.12, undefined, tint);
+              this.fx.puff(e.x + ox, Math.max(0.3, e.y - 0.3), e.z, 2, 1.2, 0.5);
+            }
+            this.fx.shake = Math.max(this.fx.shake, 0.25);
+          }
           break;
         }
         case 'knock':

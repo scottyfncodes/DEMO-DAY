@@ -1009,6 +1009,12 @@ export class World {
     d.vx = d.vy = d.vz = 0;
     d.wx = d.wy = d.wz = 0;
     const p = this.parts[d.part] as Part;
+    // A roof section or floor never comes to rest propped on the walls: debris rests on
+    // boxes that do not tilt, so a big tilted panel would hang in the air. It splinters instead.
+    if (isPanel(p) && d.restOn >= 0 && p.state !== PartState.Gone) {
+      this.shatter(d, p);
+      return;
+    }
     if (p.state === PartState.Falling) p.state = PartState.Rubble;
     if (d.restOn >= 0) {
       let list = this.resting.get(d.restOn);
@@ -1144,6 +1150,10 @@ export class World {
   /** A falling piece hits something hard: fragile things and bricks dropped from height break. */
   private landed(d: Debris, p: Part, speed: number): void {
     this.events.push({ t: 'land', part: p.id, speed, x: d.x, y: d.y - d.ey, z: d.z });
+    if (isPanel(p) && speed > PANEL_BREAK) {
+      this.shatter(d, p);
+      return;
+    }
     const brittle = p.fragile ? 3.2 : p.kind === 'tile' || p.kind === 'glass' ? 2.5 : p.kind === 'brick' || p.kind === 'partition' ? 7.5 : Infinity;
     if (speed > brittle && (p.fragile || p.kind === 'glass' || p.kind === 'tile' || this.rng.next() < 0.5)) {
       p.state = PartState.Gone;
@@ -1281,6 +1291,14 @@ export class World {
     return out.slice(0, max).map(({ part, count }) => ({ part, count }));
   }
 
+  /** A falling piece breaks up where it is. */
+  private shatter(d: Debris, p: Part): void {
+    p.state = PartState.Gone;
+    d.asleep = true;
+    this.events.push({ t: 'break', part: p.id, cause: 'land', ball: 0, x: d.x, y: d.y, z: d.z });
+    this.wake(p.id);
+  }
+
   // ---------------------------------------------------------- measurement
 
   /** Share of the house (by weight) that has broken or fallen, 0..1. */
@@ -1336,6 +1354,10 @@ function supportOrder(parts: Part[]): number[] {
 }
 
 const STAND_INF = 1 << 20;
+/** Landing speed (m/s) that splinters a roof section or floor. */
+const PANEL_BREAK = 3;
+/** Big flat pieces: roof sections, the porch roof and floors. */
+const isPanel = (p: Part): boolean => p.kind === 'deck' || p.kind === 'floor';
 
 function validSnapshot(s: WorldSnapshot, n: number): boolean {
   if (!s || typeof s !== 'object' || s.v !== 1 || s.n !== n) return false;
